@@ -227,6 +227,28 @@ fn sanitizeMsg(a: std.mem.Allocator, raw: []const u8) ![]const u8 {
     return buf.toOwnedSlice(a);
 }
 
+fn utf8DisplayLen(s: []const u8) usize {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < s.len) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(s[i]) catch 1;
+        i += seq_len;
+        n += 1;
+    }
+    return n;
+}
+
+fn truncateToColumns(s: []const u8, max_cols: usize) []const u8 {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < s.len and n < max_cols) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(s[i]) catch 1;
+        i += seq_len;
+        n += 1;
+    }
+    return s[0..i];
+}
+
 fn buildLines(a: std.mem.Allocator, events: []const LogEventItem, msg_content_w: usize) ![]const DisplayLine {
     const blank_ts = " " ** TS_DISPLAY_W;
     var list: std.ArrayList(DisplayLine) = .empty;
@@ -237,14 +259,14 @@ fn buildLines(a: std.mem.Allocator, events: []const LogEventItem, msg_content_w:
         const ts = try a.dupe(u8, ts_raw);
         const msg = try sanitizeMsg(a, ev.message);
 
-        const first_len = @min(msg.len, msg_content_w);
-        try list.append(a, .{ .ts = ts, .msg = msg[0..first_len] });
+        const first = truncateToColumns(msg, msg_content_w);
+        try list.append(a, .{ .ts = ts, .msg = first });
 
-        var pos: usize = first_len;
+        var pos: usize = first.len;
         while (pos < msg.len) {
-            const end = @min(pos + msg_content_w, msg.len);
-            try list.append(a, .{ .ts = blank_ts, .msg = msg[pos..end] });
-            pos = end;
+            const chunk = truncateToColumns(msg[pos..], msg_content_w);
+            try list.append(a, .{ .ts = blank_ts, .msg = chunk });
+            pos += chunk.len;
         }
     }
 
@@ -784,7 +806,9 @@ pub fn render(self: *LogEventsView, writer: *std.Io.Writer, size: Coord) !void {
                 try writer.writeAll(dl.msg);
                 break :blk dl.msg.len;
             };
-            for (written..msg_content_w) |_| try writer.writeByte(' ');
+            _ = written;
+            const written_cols = utf8DisplayLen(dl.msg);
+            for (written_cols..msg_content_w) |_| try writer.writeByte(' ');
             try writer.writeByte(' ');
         } else {
             for (0..TS_COL_W) |_| try writer.writeByte(' ');
@@ -854,9 +878,10 @@ fn writeStatusFrame(self: *LogEventsView, writer: *std.Io.Writer, inner_w: usize
         try writer.writeAll(constants.VERTICAL);
         try writer.writeAll(terminal.RESET);
         if (row == 0) {
-            const shown = msg[0..@min(msg.len, inner_w)];
+            const shown = truncateToColumns(msg, inner_w);
             try writer.writeAll(shown);
-            for (shown.len..inner_w) |_| try writer.writeByte(' ');
+            const shown_cols = utf8DisplayLen(shown);
+            for (shown_cols..inner_w) |_| try writer.writeByte(' ');
         } else {
             for (0..inner_w) |_| try writer.writeByte(' ');
         }

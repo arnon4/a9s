@@ -303,15 +303,38 @@ pub fn render(self: *SecretValueView, writer: *std.Io.Writer, size: Coord) !void
     try self.writeBottom(writer, inner_w);
 }
 
+fn utf8DisplayLen(s: []const u8) usize {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < s.len) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(s[i]) catch 1;
+        i += seq_len;
+        n += 1;
+    }
+    return n;
+}
+
+fn truncateToColumns(s: []const u8, max_cols: usize) []const u8 {
+    var n: usize = 0;
+    var i: usize = 0;
+    while (i < s.len and n < max_cols) {
+        const seq_len = std.unicode.utf8ByteSequenceLength(s[i]) catch 1;
+        i += seq_len;
+        n += 1;
+    }
+    return s[0..i];
+}
+
 fn writeStatus(self: *SecretValueView, writer: *std.Io.Writer, inner_w: usize, data_rows: usize, msg: []const u8) !void {
     for (0..data_rows) |row| {
         try writer.writeAll(self.fg_color);
         try writer.writeAll(constants.VERTICAL);
         try writer.writeAll(terminal.RESET);
         if (row == 0) {
-            const shown = msg[0..@min(msg.len, inner_w)];
+            const shown = truncateToColumns(msg, inner_w);
             try writer.writeAll(shown);
-            for (shown.len..inner_w) |_| try writer.writeByte(' ');
+            const shown_cols = utf8DisplayLen(shown);
+            for (shown_cols..inner_w) |_| try writer.writeByte(' ');
         } else {
             for (0..inner_w) |_| try writer.writeByte(' ');
         }
