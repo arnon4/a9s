@@ -52,11 +52,9 @@ jobs:
         id: files
         working-directory: e2e
         run: |
-          FILES=$(ls tests/*.test.js | sort | awk -v n="$TOTAL_SHARDS" -v s="${{ matrix.shard }}" 'NR % n == (s % n)')
+          FILES=$(ls tests/*.test.js | sort | awk -v n="$TOTAL_SHARDS" -v s="${{ matrix.shard }}" 'NR % n == (s % n)' | tr '\n' ' ')
           echo "$FILES"
-          echo "files<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$FILES" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
 
       - name: Run e2e tests (shard ${{ matrix.shard }}/3)
         id: e2e
