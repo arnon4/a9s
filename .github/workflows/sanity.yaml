@@ -1,0 +1,87 @@
+name: Sanity
+
+on:
+  push:
+    branches-ignore:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      has_pr: ${{ steps.check.outputs.has_pr }}
+    steps:
+      - name: Check for open PR on this branch
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          COUNT=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq 'length')
+          echo "has_pr=$([ "$COUNT" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  branch-name:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch name convention
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          if [[ ! "$BRANCH" =~ ^(fix|feat|release)/.+$ ]]; then
+            echo "::error::Branch '$BRANCH' must start with fix/, feat/, or release/"
+            exit 1
+          fi
+
+  sanity:
+    needs: gate
+    if: needs.gate.outputs.has_pr != 'true'
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Zig Compiler
+        uses: mlugg/setup-zig@v2.2.1
+        with:
+          version: 0.16.0
+
+      - name: Find changed zig files
+        id: changed
+        run: |
+          git fetch origin main --depth=1
+          BASE=$(git merge-base origin/main HEAD)
+          FILES=$(git diff --name-only --diff-filter=d "$BASE" HEAD -- 'src/**/*.zig')
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$FILES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests for changed files
+        if: steps.changed.outputs.files != ''
+        run: |
+          set -e
+          WRAPPER="src/__sanity_entry.zig"
+          trap 'rm -f "$WRAPPER"' EXIT
+          {
+            echo 'const std = @import("std");'
+            while IFS= read -r f; do
+              [ -z "$f" ] && continue
+              rel="${f#src/}"
+              echo "test { std.testing.refAllDecls(@import(\"$rel\")); }"
+            done <<< "${{ steps.changed.outputs.files }}"
+          } > "$WRAPPER"
+          cat "$WRAPPER"
+          zig test "$WRAPPER"
