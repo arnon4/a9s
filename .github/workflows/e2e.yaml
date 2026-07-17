@@ -11,14 +11,18 @@ permissions:
 jobs:
   e2e:
     strategy:
+      fail-fast: false
       matrix:
         os:
           - ubuntu-latest
           - windows-latest
+        shard: [1, 2, 3]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
+    env:
+      TOTAL_SHARDS: 3
 
     steps:
       - name: Checkout
@@ -44,6 +48,48 @@ jobs:
         working-directory: e2e
         run: npm ci
 
-      - name: Run e2e tests
+      - name: Select shard's test files
+        id: files
         working-directory: e2e
-        run: npx @microsoft/tui-test
+        run: |
+          FILES=$(ls tests/*.test.js | sort | awk -v n="$TOTAL_SHARDS" -v s="${{ matrix.shard }}" 'NR % n == (s % n)')
+          echo "$FILES"
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$FILES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Run e2e tests (shard ${{ matrix.shard }}/3)
+        id: e2e
+        working-directory: e2e
+        run: |
+          set +e
+          npx @microsoft/tui-test ${{ steps.files.outputs.files }} 2>&1 \
+            | sed 's/\x1b\[[0-9;]*m//g' | tee test-output.log
+          STATUS=${PIPESTATUS[0]}
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+
+      - name: Summarize failures
+        if: always() && steps.e2e.outputs.status != '0'
+        working-directory: e2e
+        run: |
+          {
+            echo "### e2e failures — shard ${{ matrix.shard }}/3 (${{ matrix.os }})"
+            echo
+            awk '
+              /^  [0-9]+\) /{
+                match($0, /^  [0-9]+\) /)
+                title = substr($0, RLENGTH+1)
+                getline
+                getline
+                while ($0 ~ /^[[:space:]]*$/) getline
+                err = $0
+                sub(/^[[:space:]]*/, "", err)
+                printf "- **%s** — %s\n", title, err
+              }
+            ' test-output.log
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail job if e2e tests failed
+        if: steps.e2e.outputs.status != '0'
+        run: exit 1
