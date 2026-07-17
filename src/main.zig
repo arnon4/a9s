@@ -19,7 +19,6 @@ test {
 
 pub const std_options: std.Options = .{
     .logFn = log.logFn,
-    .log_level = .debug,
 };
 
 pub fn main(init: std.process.Init) !void {
