@@ -13,8 +13,6 @@ One test file per top-level module (matches `src/app/views/<module>/`):
 - `tests/s3.test.js`, `tests/lambda.test.js`, `tests/logs.test.js`,
   `tests/iam.test.js`, `tests/secretsmanager.test.js` — fake-credential
   coverage per module (navigation, columns, error state, keys, quit confirm)
-- `tests/<module>_real.test.js` — real-AWS coverage (skips if no
-  `tests/fixtures.json`)
 - `tests/<module>_<variant>.test.js` — extra layout/regression variants
   (e.g. `iam_users_compact.test.js`, `iam_users_wide.test.js`)
 
@@ -67,8 +65,6 @@ Keep each section's tests independent (no shared mutable state across
     `e2e/tests/helpers.js`)
   - Considers both the working tree (`git status`) and commits since
     `--base` (default `main`)
-- Real-AWS tests: `node scripts/discover-and-test.mjs` (see that script for
-  fixture discovery / `--profile` / `--region` flags)
 
 Module → test-file mapping lives in `scripts/module-map.mjs` (`MODULE_MAP`) —
 register a new module there.
