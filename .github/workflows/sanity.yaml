@@ -62,7 +62,7 @@ jobs:
       - name: Find changed zig files
         id: changed
         run: |
-          git fetch origin main --depth=1
+          git fetch origin main
           BASE=$(git merge-base origin/main HEAD)
           FILES=$(git diff --name-only --diff-filter=d "$BASE" HEAD -- 'src/**/*.zig')
           echo "files<<EOF" >> "$GITHUB_OUTPUT"
