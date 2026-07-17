@@ -2,7 +2,8 @@ import process from "node:process";
 import path from "node:path";
 
 // process.cwd() is e2e/ regardless of which cache subdir this file is loaded from
-export const BIN = path.resolve(process.cwd(), "../zig-out/bin/a9s.exe");
+const BIN_NAME = process.platform === "win32" ? "a9s.exe" : "a9s";
+export const BIN = path.resolve(process.cwd(), `../zig-out/bin/${BIN_NAME}`);
 
 // Env with fake AWS credentials — app skips auth prompt and shows home view.
 export const envWithCreds = {
