@@ -2,32 +2,40 @@ name: CI
 
 on:
   workflow_dispatch:
-  push:
+  pull_request:
+    types:
+      - closed
     branches:
       - main
 
 permissions:
-  id-token: write
-  contents: read
+  contents: write
 
 jobs:
-  run:
+  build:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     strategy:
       matrix:
-        os:
-          - ubuntu-latest
-          - windows-latest
-          - macos-latest
+        include:
+          - os: windows-latest
+            artifact: a9s-windows-x86_64.exe
+            bin: a9s.exe
+          - os: ubuntu-latest
+            artifact: a9s-linux-x86_64
+            bin: a9s
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
       - name: Setup Zig Compiler
         uses: mlugg/setup-zig@v2.2.1
         with:
           version: 0.16.0
-
-      - name: Checkout
-        uses: actions/checkout@v6.0.2
 
       - name: Run Unit Tests
         run: zig build test
@@ -35,5 +43,67 @@ jobs:
       - name: Build Project
         run: zig build
 
-      - name: Configure AWS Credentials
-        uses:
+      - name: Rename artifact
+        run: cp "zig-out/bin/${{ matrix.bin }}" "${{ matrix.artifact }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Determine version bump
+        id: bump
+        run: |
+          BRANCH="${{ github.event.pull_request.head.ref }}"
+          case "$BRANCH" in
+            release/*) echo "bump=major" >> "$GITHUB_OUTPUT" ;;
+            feat/*) echo "bump=minor" >> "$GITHUB_OUTPUT" ;;
+            fix/*) echo "bump=patch" >> "$GITHUB_OUTPUT" ;;
+            *) echo "bump=patch" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Compute next version
+        id: version
+        run: |
+          git fetch --tags
+          LAST_TAG=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          if [ -z "$LAST_TAG" ]; then LAST_TAG="v0.0.0"; fi
+          VERSION="${LAST_TAG#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          case "${{ steps.bump.outputs.bump }}" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+          echo "tag=v$MAJOR.$MINOR.$PATCH" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag
+        run: |
+          git tag "${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            dist/a9s-windows-x86_64.exe dist/a9s-linux-x86_64 \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes

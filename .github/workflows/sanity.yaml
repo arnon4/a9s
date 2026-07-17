@@ -5,12 +5,66 @@ on:
     branches-ignore:
       - main
 
+permissions:
+  contents: read
+
 jobs:
+  branch-name:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch name convention
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          if [[ ! "$BRANCH" =~ ^(fix|feat|release)/.+$ ]]; then
+            echo "::error::Branch '$BRANCH' must start with fix/, feat/, or release/"
+            exit 1
+          fi
+
   sanity:
     strategy:
       matrix:
         os:
           - ubuntu-latest
           - windows-latest
-          - macos-latest
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup Zig Compiler
+        uses: mlugg/setup-zig@v2.2.1
+        with:
+          version: 0.16.0
+
+      - name: Find changed zig files
+        id: changed
+        run: |
+          git fetch origin main --depth=1
+          BASE=$(git merge-base origin/main HEAD)
+          FILES=$(git diff --name-only --diff-filter=d "$BASE" HEAD -- 'src/**/*.zig')
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$FILES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests for changed files
+        if: steps.changed.outputs.files != ''
+        run: |
+          set -e
+          WRAPPER="src/__sanity_entry.zig"
+          trap 'rm -f "$WRAPPER"' EXIT
+          {
+            echo 'const std = @import("std");'
+            while IFS= read -r f; do
+              [ -z "$f" ] && continue
+              rel="${f#src/}"
+              echo "test { std.testing.refAllDecls(@import(\"$rel\")); }"
+            done <<< "${{ steps.changed.outputs.files }}"
+          } > "$WRAPPER"
+          cat "$WRAPPER"
+          zig test "$WRAPPER"
