@@ -15,6 +15,13 @@ var sigwinch_pipe: if (is_windows) void else [2]posix.fd_t = if (is_windows) {} 
 var notify_pipe: if (is_windows) void else [2]posix.fd_t = if (is_windows) {} else undefined;
 var stdin_handle_cache: if (is_windows) ?windows.HANDLE else void = if (is_windows) null else {};
 
+/// Bytes read from stdin but not yet consumed into an Event — a single read()
+/// can contain several keystrokes (e.g. "j\r"), so leftovers are replayed
+/// before polling for more. Only used on POSIX (Windows reads one console
+/// input record at a time via ReadConsoleInputW).
+var pending_buf: [16]u8 = undefined;
+var pending_len: usize = 0;
+
 const WriteConsoleInputW = if (is_windows) struct {
     pub extern "kernel32" fn WriteConsoleInputW(
         hConsoleInput: windows.HANDLE,
@@ -85,33 +92,36 @@ pub fn notify() void {
     }
 }
 
-fn parse(bytes: []const u8) ?Event {
-    if (bytes.len == 0) return null;
+const ParseResult = struct { event: Event, consumed: usize };
 
-    if (bytes.len == 1) {
-        return switch (bytes[0]) {
-            '\r', '\n' => .{ .key = .enter },
-            '\x1b' => .{ .key = .escape },
-            '\x7f', '\x08' => .{ .key = .backspace },
-            '\x03' => .{ .key = .ctrl_c },
-            else => |c| .{ .key = .{ .char = c } },
-        };
-    }
+/// Parses exactly one key event off the front of `bytes` and reports how many
+/// bytes it consumed — callers must requeue any leftover bytes rather than
+/// discard them, since a single read() can contain several keystrokes.
+fn parseOne(bytes: []const u8) ?ParseResult {
+    if (bytes.len == 0) return null;
 
     // on Windows arrow/escape keys never arrive as escape sequences
     if (!is_windows) {
         if (bytes[0] == '\x1b' and bytes.len >= 3 and bytes[1] == '[') {
-            return switch (bytes[2]) {
-                'A' => .{ .key = .up },
-                'B' => .{ .key = .down },
-                'C' => .{ .key = .right },
-                'D' => .{ .key = .left },
-                else => .{ .key = .escape },
+            const key: Key = switch (bytes[2]) {
+                'A' => .up,
+                'B' => .down,
+                'C' => .right,
+                'D' => .left,
+                else => .escape,
             };
+            return .{ .event = .{ .key = key }, .consumed = 3 };
         }
     }
 
-    return .{ .key = .{ .char = bytes[0] } };
+    const key: Key = switch (bytes[0]) {
+        '\r', '\n' => .enter,
+        '\x1b' => .escape,
+        '\x7f', '\x08' => .backspace,
+        '\x03' => .ctrl_c,
+        else => |c| .{ .char = c },
+    };
+    return .{ .event = .{ .key = key }, .consumed = 1 };
 }
 
 const KEY_EVENT: u16 = if (is_windows) 0x0001 else 0;
@@ -174,7 +184,8 @@ pub fn readEvent(stdin: std.Io.File) !?Event {
                         const ch: u8 = @truncate(record.Event.KeyEvent.UnicodeChar);
                         if (ch == 0) return null; // other special key, ignore
                         var buf = [1]u8{ch};
-                        return parse(&buf);
+                        const result = parseOne(&buf) orelse return null;
+                        return result.event;
                     },
                 };
             },
@@ -188,6 +199,10 @@ pub fn readEvent(stdin: std.Io.File) !?Event {
             else => return null,
         }
     } else {
+        if (pending_len > 0) {
+            return consumePending();
+        }
+
         var fds = [3]posix.pollfd{
             .{ .fd = stdin.handle, .events = posix.POLL.IN, .revents = 0 },
             .{ .fd = sigwinch_pipe[0], .events = posix.POLL.IN, .revents = 0 },
@@ -214,12 +229,25 @@ pub fn readEvent(stdin: std.Io.File) !?Event {
         }
 
         if (fds[0].revents & posix.POLL.IN != 0) {
-            var buf: [16]u8 = undefined;
-            const n = try posix.read(stdin.handle, &buf);
+            const n = try posix.read(stdin.handle, &pending_buf);
             if (n == 0) return null;
-            return parse(buf[0..n]);
+            pending_len = n;
+            return consumePending();
         }
 
         return null;
     }
+}
+
+/// Parses one Event out of `pending_buf`, shifting any leftover bytes to the
+/// front so the next call picks up where this one left off.
+fn consumePending() ?Event {
+    const result = parseOne(pending_buf[0..pending_len]) orelse {
+        pending_len = 0;
+        return null;
+    };
+    const remaining = pending_len - result.consumed;
+    std.mem.copyForwards(u8, pending_buf[0..remaining], pending_buf[result.consumed..pending_len]);
+    pending_len = remaining;
+    return result.event;
 }
