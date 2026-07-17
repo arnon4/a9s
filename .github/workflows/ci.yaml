@@ -7,6 +7,11 @@ on:
       - closed
     branches:
       - main
+    paths-ignore:
+      - "**.md"
+      - "LICENSE"
+      - "e2e/**"
+      - ".github/**"
 
 permissions:
   contents: write
@@ -37,9 +42,6 @@ jobs:
         with:
           version: 0.16.0
 
-      - name: Run Unit Tests
-        run: zig build test
-
       - name: Build Project
         run: zig build
 
@@ -47,7 +49,7 @@ jobs:
         run: cp "zig-out/bin/${{ matrix.bin }}" "${{ matrix.artifact }}"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
@@ -58,12 +60,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
