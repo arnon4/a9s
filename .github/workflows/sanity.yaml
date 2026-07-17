@@ -7,8 +7,23 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      has_pr: ${{ steps.check.outputs.has_pr }}
+    steps:
+      - name: Check for open PR on this branch
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          COUNT=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq 'length')
+          echo "has_pr=$([ "$COUNT" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   branch-name:
     runs-on: ubuntu-latest
     steps:
@@ -21,6 +36,8 @@ jobs:
           fi
 
   sanity:
+    needs: gate
+    if: needs.gate.outputs.has_pr != 'true'
     strategy:
       matrix:
         os:
