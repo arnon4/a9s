@@ -12,6 +12,7 @@ on:
       - "LICENSE"
       - "e2e/**"
       - ".github/**"
+      - ".claude/**"
 
 permissions:
   contents: write
