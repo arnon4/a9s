@@ -1,29 +1,32 @@
 # a9s
 
-A keyboard-driven AWS TUI explorer built with Zig.
+A keyboard-driven AWS TUI explorer, inspired by k9s. Linux and Windows (x86_64) supported currently.
 
-## Supported services
+## Overview
 
-**S3** — browse buckets, drill into objects, view or download object content inline.
-
-**Lambda** — list functions across regions, open function detail and view code.
-
-**CloudWatch Logs** — browse log groups and log streams; open a live log events viewer that auto-refreshes every 5 seconds.
+- Terminal-based workflow - access supported AWS services directly from your terminal.
+- Multi-region, multi-account - view multiple profiles across multiple different AWS regions at once.
+- Read-only permissions - inspect resources and logs without fear of destroying your environments.
 
 ## Getting started
 
+**Download**
+
+The [releases](https://github.com/arnon4/a9s/releases) page contains prebuilt binaries. Download it, add to your path, and run.
+
 **Build**
 
-```
+```bash
 zig build
 ```
 
-Binary is written to `zig-out/bin/a9s` (`zig-out/bin/a9s.exe` on Windows).
+Binary is written to `zig-out/bin/a9s` on Linux, `zig-out\bin\a9s.exe` on Windows.
 
 **Run**
 
-```
-./zig-out/bin/a9s
+```bash
+./zig-out/bin/a9s       # Linux
+.\zig-out\bin\a9s.exe   # Windows
 ```
 
 **Authentication**
