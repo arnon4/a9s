@@ -11,6 +11,7 @@ export const MODULE_MAP = {
   logs: ["logs"],
   iam: ["iam"],
   secretsmanager: ["secretsmanager"],
+  cloudtrail: ["cloudtrail"],
   auth: ["auth"],
   help: ["help"],
 };
