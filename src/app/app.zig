@@ -44,6 +44,10 @@ const IamIdentityProvidersView = @import("views/iam/identity_providers.zig");
 const ProviderSortKey = IamIdentityProvidersView.ProviderSortKey;
 const SecretsView = @import("views/secretsmanager/secrets.zig");
 const SecretSortKey = SecretsView.SortKey;
+const CloudTrailTrailsView = @import("views/cloudtrail/trails.zig");
+const TrailSortKey = CloudTrailTrailsView.SortKey;
+const CloudTrailEventsView = @import("views/cloudtrail/events.zig");
+const EventSortKey = CloudTrailEventsView.SortKey;
 
 /// Top-level application state. Owns the terminal raw mode, view stack, and event loop.
 pub const App = struct {
@@ -197,6 +201,9 @@ pub const App = struct {
                                         .iam_user_inline_policy_document => |*v| v.commitFilter(s.text),
                                         .iam_group_inline_policy_document => |*v| v.commitFilter(s.text),
                                         .secretsmanager_secrets => |*v| v.commitFilter(s.text),
+                                        .cloudtrail_trails => |*v| v.commitFilter(s.text),
+                                        .cloudtrail_events => |*v| v.commitFilter(s.text),
+                                        .cloudtrail_event_detail => |*v| v.commitFilter(s.text),
                                         else => {},
                                     }
                                     self.updateViewLiveFilter("");
@@ -221,7 +228,7 @@ pub const App = struct {
                                             }
                                             if (c == '/') {
                                                 const searchable = switch (self.currentView().*) {
-                                                    .s3_buckets, .s3_objects, .s3_object_content, .lambda_functions, .lambda_function_content, .logs_log_groups, .logs_log_events, .iam_policy_document, .iam_role_trust_policy, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .iam_user_inline_policy_document, .iam_group_inline_policy_document, .secretsmanager_secrets => true,
+                                                    .s3_buckets, .s3_objects, .s3_object_content, .lambda_functions, .lambda_function_content, .logs_log_groups, .logs_log_events, .iam_policy_document, .iam_role_trust_policy, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .iam_user_inline_policy_document, .iam_group_inline_policy_document, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events, .cloudtrail_event_detail => true,
                                                     else => false,
                                                 };
                                                 if (searchable) {
@@ -321,6 +328,9 @@ pub const App = struct {
             .iam_user_inline_policy_document => |*v| v.setLiveFilter(text),
             .iam_group_inline_policy_document => |*v| v.setLiveFilter(text),
             .secretsmanager_secrets => |*v| v.setLiveFilter(text),
+            .cloudtrail_trails => |*v| v.setLiveFilter(text),
+            .cloudtrail_events => |*v| v.setLiveFilter(text),
+            .cloudtrail_event_detail => |*v| v.setLiveFilter(text),
             else => {},
         }
     }
@@ -554,6 +564,11 @@ pub const App = struct {
                 v.deinit();
                 self.currentView().* = .{ .secretsmanager_secrets = new_v };
             },
+            .cloudtrail_trails => |*v| {
+                const new_v = CloudTrailTrailsView.init(self.allocator, self.io, &self.profile_set, self.regions.items, self.color_support) catch return;
+                v.deinit();
+                self.currentView().* = .{ .cloudtrail_trails = new_v };
+            },
             else => {},
         }
     }
@@ -579,9 +594,15 @@ pub const App = struct {
                 v.deinit();
                 self.currentView().* = .{ .secretsmanager_secrets = new_v };
             },
+            .cloudtrail_trails => |*v| {
+                const new_v = CloudTrailTrailsView.init(self.allocator, self.io, &self.profile_set, self.regions.items, self.color_support) catch return;
+                v.deinit();
+                self.currentView().* = .{ .cloudtrail_trails = new_v };
+            },
             // Detail views are region-independent; no refresh needed.
             .lambda_function, .lambda_function_content, .logs_log_streams, .logs_log_events => {},
             .secretsmanager_secret, .secretsmanager_secret_value, .secretsmanager_resource_policy => {},
+            .cloudtrail_events, .cloudtrail_event_detail => {},
             // IAM is global; no region refresh needed.
             .iam_home, .iam_roles, .iam_policies, .iam_role, .iam_role_policies, .iam_role_trust_policy, .iam_policy, .iam_policy_document => {},
             .iam_users, .iam_user, .iam_user_inline_policies, .iam_user_inline_policy_document => {},
@@ -593,7 +614,7 @@ pub const App = struct {
     fn handleFilterCommand(self: *Self, t: []const u8) void {
         const rest = std.mem.trim(u8, t["filter".len..], " ");
         const filterable = switch (self.currentView().*) {
-            .s3_buckets, .s3_objects, .lambda_functions, .logs_log_groups, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .secretsmanager_secrets => true,
+            .s3_buckets, .s3_objects, .lambda_functions, .logs_log_groups, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events => true,
             else => false,
         };
         if (!filterable) {
@@ -612,6 +633,8 @@ pub const App = struct {
                 .iam_groups => |*v| v.clearFilterExpr(),
                 .iam_identity_providers => |*v| v.clearFilterExpr(),
                 .secretsmanager_secrets => |*v| v.clearFilterExpr(),
+                .cloudtrail_trails => |*v| v.clearFilterExpr(),
+                .cloudtrail_events => |*v| v.clearFilterExpr(),
                 else => {},
             }
             return;
@@ -631,6 +654,8 @@ pub const App = struct {
             .iam_groups => |*v| v.setFilterExpr(result),
             .iam_identity_providers => |*v| v.setFilterExpr(result),
             .secretsmanager_secrets => |*v| v.setFilterExpr(result),
+            .cloudtrail_trails => |*v| v.setFilterExpr(result),
+            .cloudtrail_events => |*v| v.setFilterExpr(result),
             else => result.deinit(),
         }
     }
@@ -825,7 +850,7 @@ fn parseSortCommand(view: *view_mod.View, text: []const u8) CommandResult {
     if (!is_sort) return .unknown;
 
     const sortable = switch (view.*) {
-        .s3_buckets, .s3_objects, .lambda_functions, .logs_log_groups, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .secretsmanager_secrets => true,
+        .s3_buckets, .s3_objects, .lambda_functions, .logs_log_groups, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events => true,
         else => false,
     };
     if (!sortable) return .not_allowed;
@@ -885,9 +910,36 @@ fn parseSortCommand(view: *view_mod.View, text: []const u8) CommandResult {
             const n = parseSortKeys(SecretSortKey, parseSecretSortKey, rest, &keys);
             if (n > 0) v.setSort(keys[0..n], dir);
         },
+        .cloudtrail_trails => |*v| {
+            var keys: [4]TrailSortKey = undefined;
+            const n = parseSortKeys(TrailSortKey, parseTrailSortKey, rest, &keys);
+            if (n > 0) v.setSort(keys[0..n], dir);
+        },
+        .cloudtrail_events => |*v| {
+            var keys: [4]EventSortKey = undefined;
+            const n = parseSortKeys(EventSortKey, parseEventSortKey, rest, &keys);
+            if (n > 0) v.setSort(keys[0..n], dir);
+        },
         else => {},
     }
     return .ok;
+}
+
+fn parseTrailSortKey(tok: []const u8) ?TrailSortKey {
+    if (std.mem.eql(u8, tok, "name")) return .name;
+    if (std.mem.eql(u8, tok, "region")) return .region;
+    if (std.mem.eql(u8, tok, "status")) return .status;
+    if (std.mem.eql(u8, tok, "account") or std.mem.eql(u8, tok, "account_id")) return .account;
+    return null;
+}
+
+fn parseEventSortKey(tok: []const u8) ?EventSortKey {
+    if (std.mem.eql(u8, tok, "time")) return .time;
+    if (std.mem.eql(u8, tok, "name")) return .name;
+    if (std.mem.eql(u8, tok, "user") or std.mem.eql(u8, tok, "username")) return .user;
+    if (std.mem.eql(u8, tok, "source")) return .source;
+    if (std.mem.eql(u8, tok, "account") or std.mem.eql(u8, tok, "account_id")) return .account;
+    return null;
 }
 
 fn parseSecretSortKey(tok: []const u8) ?SecretSortKey {
