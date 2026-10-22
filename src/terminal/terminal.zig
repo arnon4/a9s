@@ -30,7 +30,7 @@ pub fn getColorSupport(environ_map: *const std.process.Environ.Map) ColorSupport
                 return .truecolor;
         }
         if (environ_map.get("TERM")) |val| {
-            if (std.mem.indexOf(u8, val, "256color") != null)
+            if (std.mem.find(u8, val, "256color") != null)
                 return .color256;
         }
         return .color16;
@@ -232,8 +232,8 @@ pub fn enableRawMode(io: std.Io, stdin: std.Io.File, stdout: std.Io.File) !if (i
         // output: disable NL to CRNL
         raw.oflag.OPOST = false;
         // read: return after 1 byte, no timeout
-        raw.cc[@intFromEnum(posix.V.MIN)] = 1;
-        raw.cc[@intFromEnum(posix.V.TIME)] = 0;
+        raw.cc[@backingInt(posix.V.MIN)] = 1;
+        raw.cc[@backingInt(posix.V.TIME)] = 0;
         try std.posix.tcsetattr(stdin.handle, .FLUSH, raw);
         std.log.debug("enableRawMode: raw mode set OK", .{});
         return original;

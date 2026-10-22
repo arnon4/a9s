@@ -28,8 +28,8 @@ pub const AwsCommonError = error{
 /// Map an AWS error code string to AwsCommonError using comptime name matching.
 /// Returns null if code does not match any known common error.
 pub fn fromCode(code: []const u8) ?AwsCommonError {
-    inline for (@typeInfo(AwsCommonError).error_set.?) |entry| {
-        if (std.mem.eql(u8, entry.name, code)) return @field(AwsCommonError, entry.name);
+    inline for (@typeInfo(AwsCommonError).error_set.error_names.?) |name| {
+        if (std.mem.eql(u8, name, code)) return @field(AwsCommonError, name);
     }
     return null;
 }

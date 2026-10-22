@@ -226,8 +226,8 @@ fn writeSizeCell(writer: *std.Io.Writer, bytes: u64) !void {
 }
 
 fn modeFor(width: i16) Mode {
-    if (width >= @intFromEnum(constants.Size.wide)) return .wide;
-    if (width >= @intFromEnum(constants.Size.medium)) return .medium;
+    if (width >= @backingInt(constants.Size.wide)) return .wide;
+    if (width >= @backingInt(constants.Size.medium)) return .medium;
     return .compact;
 }
 

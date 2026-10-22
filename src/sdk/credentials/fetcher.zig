@@ -288,7 +288,7 @@ fn credentialsFromSection(allocator: Allocator, ini: *const IniFile, section: []
 /// Config file uses "default" as-is; all other profiles are "profile <name>".
 fn configSectionName(allocator: Allocator, profile_name: []const u8) ![]u8 {
     if (std.mem.eql(u8, profile_name, "default")) return allocator.dupe(u8, "default");
-    return std.fmt.allocPrint(allocator, "profile {s}", .{profile_name});
+    return allocator.print("profile {s}", .{profile_name});
 }
 
 /// Region priority: AWS_DEFAULT_REGION → AWS_REGION → config file → "us-east-1".
@@ -337,7 +337,7 @@ fn awsDefaultFilePath(allocator: Allocator, env: std.process.Environ, filename: 
     const home_var = comptime if (builtin.os.tag == .windows) "USERPROFILE" else "HOME";
     const home = try env.getAlloc(allocator, home_var);
     defer allocator.free(home);
-    return std.fmt.allocPrint(allocator, "{s}/.aws/{s}", .{ home, filename });
+    return allocator.print("{s}/.aws/{s}", .{ home, filename });
 }
 
 fn fetchFromAssumeRoleWebIdentity(allocator: Allocator, io: std.Io, env: std.process.Environ, options: CredentialsStoreOptions) !?Credentials {
@@ -407,7 +407,7 @@ fn fetchFromIAMIdentityCenter(allocator: Allocator, io: std.Io, env: std.process
     const SsoParams = struct { start_url: []const u8, region: []const u8, session_name: ?[]const u8 = null };
     const sso = sso: {
         if (config.get(section, "sso_session")) |session_name| {
-            const session_section = try std.fmt.allocPrint(allocator, "sso-session {s}", .{session_name});
+            const session_section = try allocator.print("sso-session {s}", .{session_name});
             defer allocator.free(session_section);
             break :sso SsoParams{
                 .start_url = config.get(session_section, "sso_start_url") orelse return error.SsoSessionMissingStartUrl,
@@ -438,7 +438,7 @@ fn fetchFromIAMIdentityCenter(allocator: Allocator, io: std.Io, env: std.process
     const home = try env.getAlloc(allocator, home_var);
     defer allocator.free(home);
 
-    const cache_path = try std.fmt.allocPrint(allocator, "{s}/.aws/sso/cache/{s}.json", .{ home, hex });
+    const cache_path = try allocator.print("{s}/.aws/sso/cache/{s}.json", .{ home, hex });
     defer allocator.free(cache_path);
     std.log.debug("sso cache_path={s}", .{cache_path});
 
@@ -463,8 +463,7 @@ fn fetchFromIAMIdentityCenter(allocator: Allocator, io: std.Io, env: std.process
     const encoded_role = try uri.encodeStandard(allocator, role_name);
     defer allocator.free(encoded_role);
 
-    const sso_url = try std.fmt.allocPrint(
-        allocator,
+    const sso_url = try allocator.print(
         "https://portal.sso.{s}.amazonaws.com/federation/credentials?account_id={s}&role_name={s}",
         .{ sso_region, encoded_account, encoded_role },
     );
@@ -512,7 +511,7 @@ fn fetchFromIAMIdentityCenter(allocator: Allocator, io: std.Io, env: std.process
         .secret_access_key = secret_key,
         .session_token = session_token,
         .expiration = @divFloor(rc.expiration, 1000), // ms → s
-        .source = try std.fmt.allocPrint(allocator, "profile ({s})", .{profile_name}),
+        .source = try allocator.print("profile ({s})", .{profile_name}),
     };
 }
 
@@ -622,7 +621,7 @@ fn fetchInsideContainer(allocator: Allocator, io: std.Io, env: std.process.Envir
     // ECS task role: relative URI against the link-local metadata address.
     if (env.getAlloc(allocator, "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")) |rel_uri| {
         defer allocator.free(rel_uri);
-        const url = try std.fmt.allocPrint(allocator, "http://169.254.170.2{s}", .{rel_uri});
+        const url = try allocator.print("http://169.254.170.2{s}", .{rel_uri});
         defer allocator.free(url);
         return fetchCredentialsFromEndpoint(allocator, io, url, null, "Container");
     } else |e| if (e != error.EnvironmentVariableMissing) return e;
@@ -679,7 +678,7 @@ fn fetchFromIMDS(allocator: Allocator, io: std.Io, env: std.process.Environ, opt
     defer client.deinit();
 
     // IMDSv2: exchange a TTL for a session token.
-    const token_url = try std.fmt.allocPrint(allocator, "{s}/latest/api/token", .{base_url});
+    const token_url = try allocator.print("{s}/latest/api/token", .{base_url});
     defer allocator.free(token_url);
 
     var token_body_writer: std.Io.Writer.Allocating = .init(allocator);
@@ -696,7 +695,7 @@ fn fetchFromIMDS(allocator: Allocator, io: std.Io, env: std.process.Environ, opt
     const imds_token = token_body_writer.writer.buffer[0..token_body_writer.writer.end];
 
     // Retrieve the IAM role attached to this instance.
-    const role_url = try std.fmt.allocPrint(allocator, "{s}/latest/meta-data/iam/security-credentials/", .{base_url});
+    const role_url = try allocator.print("{s}/latest/meta-data/iam/security-credentials/", .{base_url});
     defer allocator.free(role_url);
 
     var role_body_writer: std.Io.Writer.Allocating = .init(allocator);
@@ -715,7 +714,7 @@ fn fetchFromIMDS(allocator: Allocator, io: std.Io, env: std.process.Environ, opt
     const role_name = std.mem.trim(u8, role_body_writer.writer.buffer[0..role_body_writer.writer.end], &std.ascii.whitespace);
 
     // Fetch credentials for the role.
-    const creds_url = try std.fmt.allocPrint(allocator, "{s}/latest/meta-data/iam/security-credentials/{s}", .{ base_url, role_name });
+    const creds_url = try allocator.print("{s}/latest/meta-data/iam/security-credentials/{s}", .{ base_url, role_name });
     defer allocator.free(creds_url);
 
     var creds_body_writer: std.Io.Writer.Allocating = .init(allocator);

@@ -36,7 +36,7 @@ pub fn HeadBucket(
     const initial_region = region orelse "us-east-1";
 
     // First attempt: global endpoint, sign with initial region.
-    var request_url = try std.fmt.allocPrint(allocator, "https://{s}.s3.amazonaws.com/", .{name});
+    var request_url = try allocator.print("https://{s}.s3.amazonaws.com/", .{name});
     errdefer allocator.free(request_url);
 
     var signed = try sigv4.sign(allocator, io, .{
@@ -67,7 +67,7 @@ pub fn HeadBucket(
     if (response.head.status == .moved_permanently or response.head.status == .temporary_redirect or response.head.status == .bad_request) {
         const raw_region = extractHeader(response.head.bytes, "x-amz-bucket-region") orelse {
             std.log.err("HeadBucket {s}: HTTP {d} missing x-amz-bucket-region header", .{
-                name, @intFromEnum(response.head.status),
+                name, @backingInt(response.head.status),
             });
             req.deinit();
             signed.deinit();
@@ -87,7 +87,7 @@ pub fn HeadBucket(
         allocator.free(request_url);
         request_url = "";
 
-        const regional_url = try std.fmt.allocPrint(allocator, "https://{s}.s3.{s}.amazonaws.com/", .{ name, actual_region });
+        const regional_url = try allocator.print("https://{s}.s3.{s}.amazonaws.com/", .{ name, actual_region });
         request_url = regional_url;
 
         signed = try sigv4.sign(allocator, io, .{
@@ -158,7 +158,7 @@ fn extractHeader(bytes: []const u8, header_name: []const u8) ?[]const u8 {
     _ = it.next(); // skip status line
     while (it.next()) |line| {
         if (line.len == 0) break;
-        const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+        const colon = std.mem.findScalar(u8, line, ':') orelse continue;
         const name = std.mem.trim(u8, line[0..colon], " \t");
         if (std.ascii.eqlIgnoreCase(name, header_name)) {
             return std.mem.trim(u8, line[colon + 1 ..], " \t");

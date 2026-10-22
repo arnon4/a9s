@@ -48,8 +48,7 @@ pub fn getSAMLProvider(client: anytype, options: Options) !GetSAMLProviderResult
     const encoded_arn = try encodeArn(client.allocator, options.saml_provider_arn);
     defer client.allocator.free(encoded_arn);
 
-    const body = try std.fmt.allocPrint(
-        client.allocator,
+    const body = try client.allocator.print(
         "Action=GetSAMLProvider&Version=2010-05-08&SAMLProviderArn={s}",
         .{encoded_arn},
     );
@@ -106,13 +105,13 @@ pub fn getSAMLProvider(client: anytype, options: Options) !GetSAMLProviderResult
 
     if (result.status != .ok) {
         const code = xml.extractTagContent(client.allocator, resp_body, "Code") catch {
-            std.log.err("IAM GetSAMLProvider error: status {d}", .{@intFromEnum(result.status)});
+            std.log.err("IAM GetSAMLProvider error: status {d}", .{@backingInt(result.status)});
             return aws_errors.fromStatus(result.status);
         };
         defer client.allocator.free(code);
-        std.log.err("IAM GetSAMLProvider error: {s} (status {d})", .{ code, @intFromEnum(result.status) });
-        inline for (@typeInfo(IamGetSAMLProviderError).error_set.?) |entry| {
-            if (std.mem.eql(u8, entry.name, code)) return @field(IamGetSAMLProviderError, entry.name);
+        std.log.err("IAM GetSAMLProvider error: {s} (status {d})", .{ code, @backingInt(result.status) });
+        inline for (@typeInfo(IamGetSAMLProviderError).error_set.error_names.?) |name| {
+            if (std.mem.eql(u8, name, code)) return @field(IamGetSAMLProviderError, name);
         }
         return aws_errors.fromCode(code) orelse aws_errors.fromStatus(result.status);
     }
@@ -127,7 +126,7 @@ fn encodeArn(allocator: Allocator, arn: []const u8) ![]u8 {
         if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_' or c == '.' or c == '~') {
             try out.append(allocator, c);
         } else {
-            const hex = try std.fmt.allocPrint(allocator, "%{X:0>2}", .{c});
+            const hex = try allocator.print("%{X:0>2}", .{c});
             defer allocator.free(hex);
             try out.appendSlice(allocator, hex);
         }
@@ -154,11 +153,11 @@ fn parsePrivateKeyList(allocator: Allocator, body: []const u8) ![]SAMLPrivateKey
     while (true) {
         const slice = block[offset..];
         const start_tag = "<member";
-        const m_start = std.mem.indexOf(u8, slice, start_tag) orelse break;
-        const gt = std.mem.indexOfScalarPos(u8, slice, m_start + start_tag.len, '>') orelse break;
+        const m_start = std.mem.find(u8, slice, start_tag) orelse break;
+        const gt = std.mem.findScalarPos(u8, slice, m_start + start_tag.len, '>') orelse break;
         const content_start = gt + 1;
         const end_tag = "</member>";
-        const m_end = std.mem.indexOf(u8, slice[content_start..], end_tag) orelse break;
+        const m_end = std.mem.find(u8, slice[content_start..], end_tag) orelse break;
         const member_content = slice[content_start .. content_start + m_end];
 
         const key_id = try xmlStr(allocator, member_content, "KeyId");

@@ -157,17 +157,17 @@ pub fn lookupEventsWithIo(
         const code_str = extractJsonString(allocator, response_body, "__type") catch null;
         defer if (code_str) |c| allocator.free(c);
         if (code_str) |full_code| {
-            const code = if (std.mem.lastIndexOfScalar(u8, full_code, '#')) |idx|
+            const code = if (std.mem.findScalarLast(u8, full_code, '#')) |idx|
                 full_code[idx + 1 ..]
             else
                 full_code;
-            std.log.err("CloudTrail LookupEvents error: {s} (status {d})", .{ code, @intFromEnum(result.status) });
-            inline for (@typeInfo(LookupEventsError).error_set.?) |entry| {
-                if (std.mem.eql(u8, entry.name, code)) return @field(LookupEventsError, entry.name);
+            std.log.err("CloudTrail LookupEvents error: {s} (status {d})", .{ code, @backingInt(result.status) });
+            inline for (@typeInfo(LookupEventsError).error_set.error_names.?) |name| {
+                if (std.mem.eql(u8, name, code)) return @field(LookupEventsError, name);
             }
             return aws_errors.fromCode(code) orelse aws_errors.fromStatus(result.status);
         }
-        std.log.err("CloudTrail LookupEvents error: status {d} body={s}", .{ @intFromEnum(result.status), response_body });
+        std.log.err("CloudTrail LookupEvents error: status {d} body={s}", .{ @backingInt(result.status), response_body });
         return aws_errors.fromStatus(result.status);
     }
 
@@ -211,7 +211,7 @@ fn buildBody(allocator: Allocator, options: Options) ![]u8 {
     if (options.max_results) |v| {
         if (!first) try buf.appendSlice(allocator, ",");
         first = false;
-        const s = try std.fmt.allocPrint(allocator, "\"MaxResults\":{d}", .{v});
+        const s = try allocator.print("\"MaxResults\":{d}", .{v});
         defer allocator.free(s);
         try buf.appendSlice(allocator, s);
     }
@@ -236,7 +236,7 @@ fn writeJsonStringField(buf: *std.ArrayList(u8), allocator: Allocator, key: []co
 fn writeJsonI64Field(buf: *std.ArrayList(u8), allocator: Allocator, key: []const u8, value: i64, first: *bool) !void {
     if (!first.*) try buf.appendSlice(allocator, ",");
     first.* = false;
-    const s = try std.fmt.allocPrint(allocator, "\"{s}\":{d}", .{ key, value });
+    const s = try allocator.print("\"{s}\":{d}", .{ key, value });
     defer allocator.free(s);
     try buf.appendSlice(allocator, s);
 }
@@ -246,16 +246,16 @@ fn writeJsonI64Field(buf: *std.ArrayList(u8), allocator: Allocator, key: []const
 // ============================================================================
 
 fn extractJsonString(allocator: Allocator, json: []const u8, key: []const u8) ![]u8 {
-    const needle = try std.fmt.allocPrint(allocator, "\"{s}\"", .{key});
+    const needle = try allocator.print("\"{s}\"", .{key});
     defer allocator.free(needle);
 
-    const pos = std.mem.indexOf(u8, json, needle) orelse return error.KeyNotFound;
+    const pos = std.mem.find(u8, json, needle) orelse return error.KeyNotFound;
     const after_key = json[pos + needle.len ..];
-    const colon = std.mem.indexOfScalar(u8, after_key, ':') orelse return error.KeyNotFound;
+    const colon = std.mem.findScalar(u8, after_key, ':') orelse return error.KeyNotFound;
     const after_colon = std.mem.trimStart(u8, after_key[colon + 1 ..], " \t\r\n");
     if (after_colon.len == 0 or after_colon[0] != '"') return error.KeyNotFound;
     const content = after_colon[1..];
-    const end = std.mem.indexOfScalar(u8, content, '"') orelse return error.KeyNotFound;
+    const end = std.mem.findScalar(u8, content, '"') orelse return error.KeyNotFound;
     return allocator.dupe(u8, content[0..end]);
 }
 
@@ -440,11 +440,11 @@ test "buildBody with lookup attributes and time range" {
         .max_results = 25,
     });
     defer allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"AttributeKey\":\"EventName\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"AttributeValue\":\"ConsoleLogin\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"StartTime\":1700000000") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"EndTime\":1700003600") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"MaxResults\":25") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"AttributeKey\":\"EventName\"") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"AttributeValue\":\"ConsoleLogin\"") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"StartTime\":1700000000") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"EndTime\":1700003600") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"MaxResults\":25") != null);
 }
 
 test "parseResponse basic" {

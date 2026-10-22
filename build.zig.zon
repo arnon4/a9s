@@ -2,7 +2,7 @@
     .name = .at,
     .version = "0.1.0",
     .fingerprint = 0x6a57fd3c15647787, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         // See `zig fetch --save <url>` for a command-line interface for adding dependencies.
         //.example = .{

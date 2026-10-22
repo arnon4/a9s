@@ -69,7 +69,7 @@ pub const App = struct {
     pub fn init(io: std.Io, writer: *std.Io.Writer, allocator: std.mem.Allocator, environ_map: *const std.process.Environ.Map, environ: std.process.Environ) !Self {
         const stdin = std.Io.File.stdin();
         const stdout = std.Io.File.stdout();
-        const size = try getTerminalSize(io, stdin);
+        const size = try getTerminalSize(io, stdout);
 
         try input.initSignals();
         const original_mode = try terminal.enableRawMode(io, stdin, stdout);

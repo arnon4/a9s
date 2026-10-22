@@ -55,7 +55,7 @@ pub fn readProfiles(allocator: std.mem.Allocator, io: std.Io, env: std.process.E
     };
     defer allocator.free(home);
 
-    const config_path = try std.fmt.allocPrint(allocator, "{s}/.aws/config", .{home});
+    const config_path = try allocator.print("{s}/.aws/config", .{home});
     defer allocator.free(config_path);
 
     var config = IniFile.parseFile(allocator, io, config_path) catch |e| switch (e) {
@@ -107,7 +107,7 @@ pub fn beginLogin(
     const home = try env.getAlloc(allocator, home_var);
     defer allocator.free(home);
 
-    const config_path = try std.fmt.allocPrint(allocator, "{s}/.aws/config", .{home});
+    const config_path = try allocator.print("{s}/.aws/config", .{home});
     defer allocator.free(config_path);
 
     var config = try IniFile.parseFile(allocator, io, config_path);
@@ -116,13 +116,13 @@ pub fn beginLogin(
     const section = if (std.mem.eql(u8, profile, "default"))
         try allocator.dupe(u8, "default")
     else
-        try std.fmt.allocPrint(allocator, "profile {s}", .{profile});
+        try allocator.print("profile {s}", .{profile});
     defer allocator.free(section);
 
     const SsoParams = struct { start_url: []const u8, region: []const u8, cache_key: []const u8 };
     const sso: SsoParams = sso: {
         if (config.get(section, "sso_session")) |session_name| {
-            const ss = try std.fmt.allocPrint(allocator, "sso-session {s}", .{session_name});
+            const ss = try allocator.print("sso-session {s}", .{session_name});
             defer allocator.free(ss);
             break :sso .{
                 .start_url = config.get(ss, "sso_start_url") orelse return error.SsoSessionMissingStartUrl,
@@ -147,7 +147,7 @@ pub fn beginLogin(
     defer http_client.deinit();
 
     // RegisterClient
-    const register_url = try std.fmt.allocPrint(allocator, "https://oidc.{s}.amazonaws.com/client/register", .{sso_region});
+    const register_url = try allocator.print("https://oidc.{s}.amazonaws.com/client/register", .{sso_region});
     defer allocator.free(register_url);
 
     var reg_resp: std.Io.Writer.Allocating = .init(allocator);
@@ -169,10 +169,10 @@ pub fn beginLogin(
     const client_secret = try a.dupe(u8, reg_parsed.value.clientSecret);
 
     // StartDeviceAuthorization
-    const device_auth_url = try std.fmt.allocPrint(allocator, "https://oidc.{s}.amazonaws.com/device_authorization", .{sso_region});
+    const device_auth_url = try allocator.print("https://oidc.{s}.amazonaws.com/device_authorization", .{sso_region});
     defer allocator.free(device_auth_url);
 
-    const device_req = try std.fmt.allocPrint(allocator, "{{\"clientId\":\"{s}\",\"clientSecret\":\"{s}\",\"startUrl\":\"{s}\"}}", .{ client_id, client_secret, start_url });
+    const device_req = try allocator.print("{{\"clientId\":\"{s}\",\"clientSecret\":\"{s}\",\"startUrl\":\"{s}\"}}", .{ client_id, client_secret, start_url });
     defer allocator.free(device_req);
 
     var device_resp: std.Io.Writer.Allocating = .init(allocator);
@@ -203,9 +203,9 @@ pub fn beginLogin(
     var digest: [std.crypto.hash.Sha1.digest_length]u8 = undefined;
     std.crypto.hash.Sha1.hash(cache_key, &digest, .{});
     const hex = std.fmt.bytesToHex(&digest, .lower);
-    const cache_dir_path = try std.fmt.allocPrint(a, "{s}/.aws/sso/cache", .{home});
-    const cache_file_path = try std.fmt.allocPrint(a, "{s}/{s}.json", .{ cache_dir_path, hex });
-    const token_url = try std.fmt.allocPrint(a, "https://oidc.{s}.amazonaws.com/token", .{sso_region});
+    const cache_dir_path = try a.print("{s}/.aws/sso/cache", .{home});
+    const cache_file_path = try a.print("{s}/{s}.json", .{ cache_dir_path, hex });
+    const token_url = try a.print("https://oidc.{s}.amazonaws.com/token", .{sso_region});
 
     ctx.client_id = client_id;
     ctx.client_secret = client_secret;
@@ -248,8 +248,7 @@ pub fn pollToken(ctx: *PollCtx) void {
             return;
         }
 
-        const token_req = std.fmt.allocPrint(
-            allocator,
+        const token_req = allocator.print(
             "{{\"clientId\":\"{s}\",\"clientSecret\":\"{s}\",\"grantType\":\"urn:ietf:params:oauth:grant-type:device_code\",\"deviceCode\":\"{s}\"}}",
             .{ ctx.client_id, ctx.client_secret, ctx.device_code },
         ) catch |e| {
@@ -292,8 +291,7 @@ pub fn pollToken(ctx: *PollCtx) void {
             };
             defer allocator.free(expires_at_str);
 
-            const json_out = std.fmt.allocPrint(
-                allocator,
+            const json_out = allocator.print(
                 "{{\"accessToken\":\"{s}\",\"expiresAt\":\"{s}\"}}",
                 .{ tp.value.accessToken, expires_at_str },
             ) catch |e| {
@@ -355,13 +353,13 @@ pub fn getProfileInfo(allocator: std.mem.Allocator, io: std.Io, env: std.process
     };
     defer allocator.free(home);
 
-    const config_path = try std.fmt.allocPrint(allocator, "{s}/.aws/config", .{home});
+    const config_path = try allocator.print("{s}/.aws/config", .{home});
     defer allocator.free(config_path);
 
     const config_section = if (std.mem.eql(u8, profile, "default"))
         try allocator.dupe(u8, "default")
     else
-        try std.fmt.allocPrint(allocator, "profile {s}", .{profile});
+        try allocator.print("profile {s}", .{profile});
     defer allocator.free(config_section);
 
     config: {
@@ -382,7 +380,7 @@ pub fn getProfileInfo(allocator: std.mem.Allocator, io: std.Io, env: std.process
     const creds_path = if (env.getAlloc(allocator, "AWS_SHARED_CREDENTIALS_FILE")) |p|
         p
     else |_|
-        try std.fmt.allocPrint(allocator, "{s}/.aws/credentials", .{home});
+        try allocator.print("{s}/.aws/credentials", .{home});
     defer allocator.free(creds_path);
 
     var creds = IniFile.parseFile(allocator, io, creds_path) catch |e| switch (e) {
@@ -405,7 +403,7 @@ fn clearSsoCacheInner(allocator: std.mem.Allocator, io: std.Io, env: std.process
     const home = try env.getAlloc(allocator, home_var);
     defer allocator.free(home);
 
-    const config_path = try std.fmt.allocPrint(allocator, "{s}/.aws/config", .{home});
+    const config_path = try allocator.print("{s}/.aws/config", .{home});
     defer allocator.free(config_path);
 
     var config = IniFile.parseFile(allocator, io, config_path) catch return;
@@ -414,7 +412,7 @@ fn clearSsoCacheInner(allocator: std.mem.Allocator, io: std.Io, env: std.process
     const section = if (std.mem.eql(u8, profile, "default"))
         try allocator.dupe(u8, "default")
     else
-        try std.fmt.allocPrint(allocator, "profile {s}", .{profile});
+        try allocator.print("profile {s}", .{profile});
     defer allocator.free(section);
 
     const cache_key: []const u8 = blk: {
@@ -427,7 +425,7 @@ fn clearSsoCacheInner(allocator: std.mem.Allocator, io: std.Io, env: std.process
     std.crypto.hash.Sha1.hash(cache_key, &digest, .{});
     const hex = std.fmt.bytesToHex(&digest, .lower);
 
-    const cache_file_path = try std.fmt.allocPrint(allocator, "{s}/.aws/sso/cache/{s}.json", .{ home, hex });
+    const cache_file_path = try allocator.print("{s}/.aws/sso/cache/{s}.json", .{ home, hex });
     defer allocator.free(cache_file_path);
 
     std.Io.Dir.cwd().deleteFile(io, cache_file_path) catch {};
@@ -453,7 +451,7 @@ pub fn login(
 
     const url = try beginLogin(allocator, io, env, profile, ctx);
 
-    const msg = try std.fmt.allocPrint(allocator, "Opening browser: {s}\n", .{url});
+    const msg = try allocator.print("Opening browser: {s}\n", .{url});
     defer allocator.free(msg);
     try writer.writeAll(msg);
     try writer.writeAll("Waiting for authorization...\n");
@@ -493,7 +491,7 @@ fn formatIso8601Dashed(allocator: std.mem.Allocator, timestamp: i64) ![]u8 {
     const compact = try time_utils.secondsToDate(allocator, timestamp);
     defer allocator.free(compact);
     if (compact.len < 16) return error.InvalidTimestamp;
-    return std.fmt.allocPrint(allocator, "{s}-{s}-{s}T{s}:{s}:{s}Z", .{
+    return allocator.print("{s}-{s}-{s}T{s}:{s}:{s}Z", .{
         compact[0..4],
         compact[4..6],
         compact[6..8],

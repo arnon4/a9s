@@ -270,7 +270,7 @@ fn formatIso8601(allocator: Allocator, ts: i64) ![]u8 {
     const compact = try time_utils.secondsToDate(allocator, ts);
     defer allocator.free(compact);
     // compact = "YYYYMMDDTHHMMSSZ"
-    return std.fmt.allocPrint(allocator, "{s}-{s}-{s}T{s}:{s}:{s}Z", .{
+    return allocator.print("{s}-{s}-{s}T{s}:{s}:{s}Z", .{
         compact[0..4],  compact[4..6],   compact[6..8],
         compact[9..11], compact[11..13], compact[13..15],
     });
@@ -315,7 +315,7 @@ fn buildBody(allocator: Allocator, options: Options) ![]u8 {
                 try appendParam(&body, allocator, try std.fmt.bufPrint(&kbuf, "MetricDataQueries.member.{d}.MetricStat.Metric.Dimensions.member.{d}.Value", .{ qi, di }), dim.value);
             }
             {
-                const p = try std.fmt.allocPrint(allocator, "{d}", .{ms.period});
+                const p = try allocator.print("{d}", .{ms.period});
                 defer allocator.free(p);
                 try appendParam(&body, allocator, try std.fmt.bufPrint(&kbuf, "MetricDataQueries.member.{d}.MetricStat.Period", .{qi}), p);
             }
@@ -332,7 +332,7 @@ fn buildBody(allocator: Allocator, options: Options) ![]u8 {
             try appendParam(&body, allocator, try std.fmt.bufPrint(&kbuf, "MetricDataQueries.member.{d}.Label", .{qi}), lbl);
         }
         if (q.period) |p| {
-            const p_str = try std.fmt.allocPrint(allocator, "{d}", .{p});
+            const p_str = try allocator.print("{d}", .{p});
             defer allocator.free(p_str);
             try appendParam(&body, allocator, try std.fmt.bufPrint(&kbuf, "MetricDataQueries.member.{d}.Period", .{qi}), p_str);
         }
@@ -345,7 +345,7 @@ fn buildBody(allocator: Allocator, options: Options) ![]u8 {
     }
 
     if (options.max_datapoints) |md| {
-        const s = try std.fmt.allocPrint(allocator, "{d}", .{md});
+        const s = try allocator.print("{d}", .{md});
         defer allocator.free(s);
         try appendParam(&body, allocator, "MaxDatapoints", s);
     }
@@ -372,7 +372,7 @@ fn nextMember(text: []const u8, pos: *usize) ?[]const u8 {
     const open = "<member>";
     const close = "</member>";
 
-    const start = std.mem.indexOfPos(u8, text, pos.*, open) orelse return null;
+    const start = std.mem.findPos(u8, text, pos.*, open) orelse return null;
     var depth: usize = 1;
     var i = start + open.len;
 
@@ -515,13 +515,13 @@ test "buildBody basic MetricStat query" {
         }},
     });
     defer allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "Action=GetMetricData") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "MetricDataQueries.member.1.Id=m1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "MetricStat.Metric.Namespace=AWS%2FEC2") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "MetricStat.Metric.MetricName=CPUUtilization") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "Dimensions.member.1.Name=InstanceId") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "MetricStat.Period=300") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "MetricStat.Stat=Average") != null);
+    try std.testing.expect(std.mem.find(u8, body, "Action=GetMetricData") != null);
+    try std.testing.expect(std.mem.find(u8, body, "MetricDataQueries.member.1.Id=m1") != null);
+    try std.testing.expect(std.mem.find(u8, body, "MetricStat.Metric.Namespace=AWS%2FEC2") != null);
+    try std.testing.expect(std.mem.find(u8, body, "MetricStat.Metric.MetricName=CPUUtilization") != null);
+    try std.testing.expect(std.mem.find(u8, body, "Dimensions.member.1.Name=InstanceId") != null);
+    try std.testing.expect(std.mem.find(u8, body, "MetricStat.Period=300") != null);
+    try std.testing.expect(std.mem.find(u8, body, "MetricStat.Stat=Average") != null);
 }
 
 test "buildBody expression query" {
@@ -537,8 +537,8 @@ test "buildBody expression query" {
         .scan_by = .timestamp_ascending,
     });
     defer allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "MetricDataQueries.member.1.Expression=") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "ScanBy=TimestampAscending") != null);
+    try std.testing.expect(std.mem.find(u8, body, "MetricDataQueries.member.1.Expression=") != null);
+    try std.testing.expect(std.mem.find(u8, body, "ScanBy=TimestampAscending") != null);
 }
 
 test "parseResponse parses MetricDataResults" {

@@ -57,14 +57,14 @@ pub fn getObjectWithIo(
 
     const request_url = if (virtual_hosted) blk: {
         if (options.version_id) |vid|
-            break :blk try std.fmt.allocPrint(allocator, "https://{s}.s3.{s}.amazonaws.com/{s}?versionId={s}", .{ options.bucket, region, encoded_key, vid })
+            break :blk try allocator.print("https://{s}.s3.{s}.amazonaws.com/{s}?versionId={s}", .{ options.bucket, region, encoded_key, vid })
         else
-            break :blk try std.fmt.allocPrint(allocator, "https://{s}.s3.{s}.amazonaws.com/{s}", .{ options.bucket, region, encoded_key });
+            break :blk try allocator.print("https://{s}.s3.{s}.amazonaws.com/{s}", .{ options.bucket, region, encoded_key });
     } else blk: {
         if (options.version_id) |vid|
-            break :blk try std.fmt.allocPrint(allocator, "{s}/{s}/{s}?versionId={s}", .{ endpoint, options.bucket, encoded_key, vid })
+            break :blk try allocator.print("{s}/{s}/{s}?versionId={s}", .{ endpoint, options.bucket, encoded_key, vid })
         else
-            break :blk try std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{ endpoint, options.bucket, encoded_key });
+            break :blk try allocator.print("{s}/{s}/{s}", .{ endpoint, options.bucket, encoded_key });
     };
     defer allocator.free(request_url);
 
@@ -123,13 +123,13 @@ pub fn getObjectWithIo(
         const code_str = xml.extractTagContent(allocator, body, "Code") catch null;
         defer if (code_str) |c| allocator.free(c);
         if (code_str) |c| {
-            std.log.err("S3 GetObject error: {s} (status {d})", .{ c, @intFromEnum(response.head.status) });
-            inline for (@typeInfo(getObjectError).error_set.?) |entry| {
-                if (std.mem.eql(u8, entry.name, c)) return @field(getObjectError, entry.name);
+            std.log.err("S3 GetObject error: {s} (status {d})", .{ c, @backingInt(response.head.status) });
+            inline for (@typeInfo(getObjectError).error_set.error_names.?) |name| {
+                if (std.mem.eql(u8, name, c)) return @field(getObjectError, name);
             }
             return aws_errors.fromCode(c) orelse aws_errors.fromStatus(response.head.status);
         }
-        std.log.err("S3 GetObject error: status {d}", .{@intFromEnum(response.head.status)});
+        std.log.err("S3 GetObject error: status {d}", .{@backingInt(response.head.status)});
         return aws_errors.fromStatus(response.head.status);
     }
 

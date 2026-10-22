@@ -1,6 +1,6 @@
----
-description: Reference for the a9s codebase — keyboard-driven AWS TUI in Zig 0.16. Use when doing anything in this repo.
----
+# a9s
+
+Keyboard-driven AWS TUI in Zig 0.17.
 
 ## Repo Structure
 

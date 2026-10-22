@@ -108,7 +108,7 @@ fn parseAccountId(arn: []const u8) []const u8 {
 
 // Parse the provider's name from the last path segment of its ARN.
 fn parseName(arn: []const u8) []const u8 {
-    const slash = std.mem.lastIndexOfScalar(u8, arn, '/') orelse return arn;
+    const slash = std.mem.findScalarLast(u8, arn, '/') orelse return arn;
     return arn[slash + 1 ..];
 }
 

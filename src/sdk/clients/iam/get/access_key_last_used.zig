@@ -85,13 +85,13 @@ pub fn getAccessKeyLastUsed(client: anytype, options: Options) !GetAccessKeyLast
 
     if (result.status != .ok) {
         const code = xml.extractTagContent(client.allocator, resp_body, "Code") catch {
-            std.log.err("IAM GetAccessKeyLastUsed error: status {d}", .{@intFromEnum(result.status)});
+            std.log.err("IAM GetAccessKeyLastUsed error: status {d}", .{@backingInt(result.status)});
             return aws_errors.fromStatus(result.status);
         };
         defer client.allocator.free(code);
-        std.log.err("IAM GetAccessKeyLastUsed error: {s} (status {d})", .{ code, @intFromEnum(result.status) });
-        inline for (@typeInfo(IamGetAccessKeyLastUsedError).error_set.?) |entry| {
-            if (std.mem.eql(u8, entry.name, code)) return @field(IamGetAccessKeyLastUsedError, entry.name);
+        std.log.err("IAM GetAccessKeyLastUsed error: {s} (status {d})", .{ code, @backingInt(result.status) });
+        inline for (@typeInfo(IamGetAccessKeyLastUsedError).error_set.error_names.?) |name| {
+            if (std.mem.eql(u8, name, code)) return @field(IamGetAccessKeyLastUsedError, name);
         }
         return aws_errors.fromCode(code) orelse aws_errors.fromStatus(result.status);
     }
@@ -100,8 +100,7 @@ pub fn getAccessKeyLastUsed(client: anytype, options: Options) !GetAccessKeyLast
 }
 
 fn buildBody(allocator: Allocator, access_key_id: []const u8) ![]u8 {
-    return std.fmt.allocPrint(
-        allocator,
+    return allocator.print(
         "Action=GetAccessKeyLastUsed&Version=2010-05-08&AccessKeyId={s}",
         .{access_key_id},
     );

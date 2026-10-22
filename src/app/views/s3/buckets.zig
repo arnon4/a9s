@@ -129,8 +129,8 @@ pub fn compareField(a: S3.Bucket, b: S3.Bucket, key: BucketSortKey, sizes: ?*con
 }
 
 fn modeFor(width: i16) Mode {
-    if (width >= @intFromEnum(constants.Size.wide)) return .wide;
-    if (width >= @intFromEnum(constants.Size.medium)) return .medium;
+    if (width >= @backingInt(constants.Size.wide)) return .wide;
+    if (width >= @backingInt(constants.Size.medium)) return .medium;
     return .compact;
 }
 
@@ -232,7 +232,7 @@ fn sizeFetchThread(ctx: *SizeCtx) void {
     defer alloc.free(processed);
     @memset(processed, false);
 
-    const endpoint = std.fmt.allocPrint(alloc, "https://monitoring.{s}.amazonaws.com/", .{ctx.region}) catch return;
+    const endpoint = alloc.print("https://monitoring.{s}.amazonaws.com/", .{ctx.region}) catch return;
     defer alloc.free(endpoint);
 
     var gi: usize = 0;

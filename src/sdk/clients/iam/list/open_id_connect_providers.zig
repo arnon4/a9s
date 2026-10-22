@@ -85,13 +85,13 @@ pub fn listOpenIDConnectProviders(client: anytype, options: Options) !Result {
 
     if (result.status != .ok) {
         const code = xml.extractTagContent(client.allocator, resp_body, "Code") catch {
-            std.log.err("IAM ListOpenIDConnectProviders error: status {d}", .{@intFromEnum(result.status)});
+            std.log.err("IAM ListOpenIDConnectProviders error: status {d}", .{@backingInt(result.status)});
             return aws_errors.fromStatus(result.status);
         };
         defer client.allocator.free(code);
-        std.log.err("IAM ListOpenIDConnectProviders error: {s} (status {d})", .{ code, @intFromEnum(result.status) });
-        inline for (@typeInfo(IamListOpenIDConnectProvidersError).error_set.?) |entry| {
-            if (std.mem.eql(u8, entry.name, code)) return @field(IamListOpenIDConnectProvidersError, entry.name);
+        std.log.err("IAM ListOpenIDConnectProviders error: {s} (status {d})", .{ code, @backingInt(result.status) });
+        inline for (@typeInfo(IamListOpenIDConnectProvidersError).error_set.error_names.?) |name| {
+            if (std.mem.eql(u8, name, code)) return @field(IamListOpenIDConnectProvidersError, name);
         }
         return aws_errors.fromCode(code) orelse aws_errors.fromStatus(result.status);
     }
@@ -118,11 +118,11 @@ fn parseResponse(allocator: Allocator, body: []const u8) !Result {
     while (true) {
         const slice = list_block[offset..];
         const start_tag = "<member";
-        const m_start = std.mem.indexOf(u8, slice, start_tag) orelse break;
-        const gt = std.mem.indexOfScalarPos(u8, slice, m_start + start_tag.len, '>') orelse break;
+        const m_start = std.mem.find(u8, slice, start_tag) orelse break;
+        const gt = std.mem.findScalarPos(u8, slice, m_start + start_tag.len, '>') orelse break;
         const content_start = gt + 1;
         const end_tag = "</member>";
-        const m_end = std.mem.indexOf(u8, slice[content_start..], end_tag) orelse break;
+        const m_end = std.mem.find(u8, slice[content_start..], end_tag) orelse break;
         const member_content = slice[content_start .. content_start + m_end];
 
         const arn = try xmlStr(allocator, member_content, "Arn");

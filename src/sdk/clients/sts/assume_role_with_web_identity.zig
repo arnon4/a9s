@@ -57,7 +57,7 @@ fn buildWebIdentityRequestBody(allocator: Allocator, params: AssumeRoleWithWebId
     try body.appendSlice(allocator, encoded_token);
 
     if (params.duration_seconds) |dur| {
-        const dur_str = try std.fmt.allocPrint(allocator, "&DurationSeconds={d}", .{dur});
+        const dur_str = try allocator.print("&DurationSeconds={d}", .{dur});
         defer allocator.free(dur_str);
         try body.appendSlice(allocator, dur_str);
     }

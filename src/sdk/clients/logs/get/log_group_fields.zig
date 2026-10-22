@@ -129,7 +129,7 @@ fn buildBody(allocator: Allocator, options: Options) ![]u8 {
     if (options.time) |v| {
         if (!first) try buf.appendSlice(allocator, ",");
         first = false;
-        const s = try std.fmt.allocPrint(allocator, "\"time\":{d}", .{v});
+        const s = try allocator.print("\"time\":{d}", .{v});
         defer allocator.free(s);
         try buf.appendSlice(allocator, s);
     }
@@ -224,7 +224,7 @@ test "buildBody with time" {
         .time = 1700000000000,
     });
     defer allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"time\":1700000000000") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"time\":1700000000000") != null);
 }
 
 test "buildBody identifier only" {
@@ -233,7 +233,7 @@ test "buildBody identifier only" {
         .log_group_identifier = "arn:aws:logs:us-east-1:123456789012:log-group:/aws/ecs/app",
     });
     defer allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"logGroupIdentifier\"") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"logGroupIdentifier\"") != null);
 }
 
 test "parseResponse basic" {

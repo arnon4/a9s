@@ -65,11 +65,11 @@ pub fn listBuckets(client: anytype, options: Options) !Result {
     var query = std.ArrayList(u8).empty;
     defer query.deinit(client.allocator);
     var first = true;
-    inline for (@typeInfo(Options).@"struct".fields) |field| {
-        if (@field(options, field.name)) |v| {
+    inline for (@typeInfo(Options).@"struct".field_names) |field_name| {
+        if (@field(options, field_name)) |v| {
             const param_name: []const u8 = comptime blk: {
-                var buf: [field.name.len]u8 = undefined;
-                for (field.name, 0..) |c, i| buf[i] = if (c == '_') '-' else c;
+                var buf: [field_name.len]u8 = undefined;
+                for (field_name, 0..) |c, i| buf[i] = if (c == '_') '-' else c;
                 const frozen = buf;
                 break :blk &frozen;
             };
@@ -81,12 +81,12 @@ pub fn listBuckets(client: anytype, options: Options) !Result {
         }
     }
     const base_url = if (options.bucket_region) |region|
-        try std.fmt.allocPrint(client.allocator, "https://s3.{s}.amazonaws.com", .{region})
+        try client.allocator.print("https://s3.{s}.amazonaws.com", .{region})
     else
-        try std.fmt.allocPrint(client.allocator, "{s}", .{client.endpoint});
+        try client.allocator.print("{s}", .{client.endpoint});
     defer client.allocator.free(base_url);
 
-    const request_url = try std.fmt.allocPrint(client.allocator, "{s}/{s}", .{ base_url, query.items });
+    const request_url = try client.allocator.print("{s}/{s}", .{ base_url, query.items });
     defer client.allocator.free(request_url);
 
     var extra_headers = std.StringHashMap([]const u8).init(client.allocator);
@@ -139,7 +139,7 @@ pub fn listBuckets(client: anytype, options: Options) !Result {
         const code_str = xml.extractTagContent(client.allocator, resp_body, "Code") catch null;
         defer if (code_str) |c| client.allocator.free(c);
         if (code_str) |c| {
-            std.log.err("S3 ListBuckets error: {s} (status {d})", .{ c, @intFromEnum(result.status) });
+            std.log.err("S3 ListBuckets error: {s} (status {d})", .{ c, @backingInt(result.status) });
             return aws_errors.fromCode(c) orelse aws_errors.fromStatus(result.status);
         }
         return aws_errors.fromStatus(result.status);
@@ -159,9 +159,9 @@ fn parseBuckets(allocator: Allocator, body: []const u8) !Result {
     const close_tag = "</Bucket>";
     var search = body;
 
-    while (std.mem.indexOf(u8, search, open_tag)) |start| {
+    while (std.mem.find(u8, search, open_tag)) |start| {
         const content_start = start + open_tag.len;
-        const end = std.mem.indexOf(u8, search[content_start..], close_tag) orelse break;
+        const end = std.mem.find(u8, search[content_start..], close_tag) orelse break;
         const block = search[content_start .. content_start + end];
 
         const name = try xml.extractTagContent(allocator, block, "Name");

@@ -289,7 +289,7 @@ fn applyOp(op: Op, fv: FieldValue, val: Value) bool {
         .contains => blk: {
             const s = fieldAsString(fv) orelse break :blk false;
             const needle = valueAsString(val) orelse break :blk false;
-            break :blk std.mem.indexOf(u8, s, needle) != null;
+            break :blk std.mem.find(u8, s, needle) != null;
         },
         .begins_with => blk: {
             const s = fieldAsString(fv) orelse break :blk false;

@@ -186,7 +186,7 @@ fn buildBody(allocator: Allocator, options: Options) ![]u8 {
     if (options.limit) |v| {
         if (!first) try buf.appendSlice(allocator, ",");
         first = false;
-        const s = try std.fmt.allocPrint(allocator, "\"limit\":{d}", .{v});
+        const s = try allocator.print("\"limit\":{d}", .{v});
         defer allocator.free(s);
         try buf.appendSlice(allocator, s);
     }
@@ -366,15 +366,15 @@ test "buildBody with prefix and limit" {
         .limit = 50,
     });
     defer allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"logGroupNamePrefix\":\"/aws/lambda\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"limit\":50") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"logGroupNamePrefix\":\"/aws/lambda\"") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"limit\":50") != null);
 }
 
 test "buildBody with next_token" {
     const allocator = std.testing.allocator;
     const body = try buildBody(allocator, .{ .next_token = "tok123" });
     defer allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"nextToken\":\"tok123\"") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"nextToken\":\"tok123\"") != null);
 }
 
 test "parseResponse basic" {

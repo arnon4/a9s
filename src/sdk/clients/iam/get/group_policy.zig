@@ -83,13 +83,13 @@ pub fn getGroupPolicy(client: anytype, options: Options) !GetGroupPolicyResult {
 
     if (result.status != .ok) {
         const code = xml.extractTagContent(client.allocator, resp_body, "Code") catch {
-            std.log.err("IAM GetGroupPolicy error: status {d}", .{@intFromEnum(result.status)});
+            std.log.err("IAM GetGroupPolicy error: status {d}", .{@backingInt(result.status)});
             return aws_errors.fromStatus(result.status);
         };
         defer client.allocator.free(code);
-        std.log.err("IAM GetGroupPolicy error: {s} (status {d})", .{ code, @intFromEnum(result.status) });
-        inline for (@typeInfo(IamGetGroupPolicyError).error_set.?) |entry| {
-            if (std.mem.eql(u8, entry.name, code)) return @field(IamGetGroupPolicyError, entry.name);
+        std.log.err("IAM GetGroupPolicy error: {s} (status {d})", .{ code, @backingInt(result.status) });
+        inline for (@typeInfo(IamGetGroupPolicyError).error_set.error_names.?) |name| {
+            if (std.mem.eql(u8, name, code)) return @field(IamGetGroupPolicyError, name);
         }
         return aws_errors.fromCode(code) orelse aws_errors.fromStatus(result.status);
     }
@@ -121,7 +121,7 @@ fn uriEncode(allocator: Allocator, input: []const u8) ![]u8 {
         if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_' or c == '.' or c == '~' or c == '/') {
             try out.append(allocator, c);
         } else {
-            const hex = try std.fmt.allocPrint(allocator, "%{X:0>2}", .{c});
+            const hex = try allocator.print("%{X:0>2}", .{c});
             defer allocator.free(hex);
             try out.appendSlice(allocator, hex);
         }

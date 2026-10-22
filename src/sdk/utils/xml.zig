@@ -6,14 +6,14 @@ const Allocator = std.mem.Allocator;
 /// (<Tag .../> returns empty string). Returns a caller-owned,
 /// XML-entity-unescaped duplicate, or error.XmlTagNotFound.
 pub fn extractTagContent(allocator: Allocator, xml: []const u8, tag: []const u8) ![]u8 {
-    const open_prefix = try std.fmt.allocPrint(allocator, "<{s}", .{tag});
+    const open_prefix = try allocator.print("<{s}", .{tag});
     defer allocator.free(open_prefix);
-    const close = try std.fmt.allocPrint(allocator, "</{s}>", .{tag});
+    const close = try allocator.print("</{s}>", .{tag});
     defer allocator.free(close);
 
     // Find <Tag followed immediately by '>', whitespace, or '/'
     var search = xml;
-    const tag_start = while (std.mem.indexOf(u8, search, open_prefix)) |idx| {
+    const tag_start = while (std.mem.find(u8, search, open_prefix)) |idx| {
         const after = idx + open_prefix.len;
         if (after >= search.len) break null;
         const next = search[after];
@@ -25,12 +25,12 @@ pub fn extractTagContent(allocator: Allocator, xml: []const u8, tag: []const u8)
     const after_name = search[start + open_prefix.len ..];
 
     // Skip to end of opening tag
-    const gt = std.mem.indexOfScalar(u8, after_name, '>') orelse return error.XmlTagNotFound;
+    const gt = std.mem.findScalar(u8, after_name, '>') orelse return error.XmlTagNotFound;
     // Self-closing: <Tag ... />
     if (gt > 0 and after_name[gt - 1] == '/') return unescapeEntities(allocator, "");
 
     const content_start = gt + 1;
-    const end = std.mem.indexOf(u8, after_name[content_start..], close) orelse return error.XmlTagNotFound;
+    const end = std.mem.find(u8, after_name[content_start..], close) orelse return error.XmlTagNotFound;
 
     return unescapeEntities(allocator, after_name[content_start .. content_start + end]);
 }
@@ -45,7 +45,7 @@ fn unescapeEntities(allocator: Allocator, input: []const u8) ![]u8 {
             i += 1;
             continue;
         }
-        const semi = std.mem.indexOfScalarPos(u8, input, i + 1, ';') orelse {
+        const semi = std.mem.findScalarPos(u8, input, i + 1, ';') orelse {
             try out.append(allocator, input[i]);
             i += 1;
             continue;

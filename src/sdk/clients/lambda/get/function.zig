@@ -56,13 +56,12 @@ pub const GetFunctionResult = struct {
 
 pub fn getFunction(client: anytype, options: Options) !GetFunctionResult {
     const qualifier_suffix = if (options.qualifier) |q|
-        try std.fmt.allocPrint(client.allocator, "?Qualifier={s}", .{q})
+        try client.allocator.print("?Qualifier={s}", .{q})
     else
         try client.allocator.dupe(u8, "");
     defer client.allocator.free(qualifier_suffix);
 
-    const request_url = try std.fmt.allocPrint(
-        client.allocator,
+    const request_url = try client.allocator.print(
         "{s}/2015-03-31/functions/{s}{s}",
         .{ client.endpoint, options.function_name, qualifier_suffix },
     );

@@ -71,7 +71,7 @@ pub const Client = struct {
         const endpoint = if (options.endpoint_url) |ep|
             try allocator.dupe(u8, ep)
         else
-            try std.fmt.allocPrint(allocator, "https://s3.{s}.amazonaws.com", .{options.region});
+            try allocator.print("https://s3.{s}.amazonaws.com", .{options.region});
 
         return .{
             .allocator = allocator,

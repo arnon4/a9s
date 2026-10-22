@@ -147,7 +147,7 @@ fn zipToText(allocator: std.mem.Allocator, io: std.Io, zip_data: []const u8) ![]
         }
 
         const content = mem_out.writer.buffer[0..mem_out.writer.end];
-        const hdr = try std.fmt.allocPrint(allocator, "\n=== {s} ===\n", .{fname});
+        const hdr = try allocator.print("\n=== {s} ===\n", .{fname});
         defer allocator.free(hdr);
         try out.appendSlice(allocator, hdr);
         try out.appendSlice(allocator, content);

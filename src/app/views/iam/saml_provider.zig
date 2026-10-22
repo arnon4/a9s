@@ -170,9 +170,9 @@ pub fn handleEvent(self: *IamSamlProviderView, event: Event, _: ViewContext) !Ac
 /// top-level <EntityDescriptor entityID="..."> tag.
 fn extractEntityId(doc: []const u8) ?[]const u8 {
     const needle = "entityID=\"";
-    const start = std.mem.indexOf(u8, doc, needle) orelse return null;
+    const start = std.mem.find(u8, doc, needle) orelse return null;
     const val_start = start + needle.len;
-    const end = std.mem.indexOfScalarPos(u8, doc, val_start, '"') orelse return null;
+    const end = std.mem.findScalarPos(u8, doc, val_start, '"') orelse return null;
     return doc[val_start..end];
 }
 

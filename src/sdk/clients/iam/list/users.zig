@@ -129,13 +129,13 @@ pub fn listUsers(client: anytype, options: Options) !Result {
 
     if (result.status != .ok) {
         const code = xml.extractTagContent(client.allocator, resp_body, "Code") catch {
-            std.log.err("IAM ListUsers error: status {d}", .{@intFromEnum(result.status)});
+            std.log.err("IAM ListUsers error: status {d}", .{@backingInt(result.status)});
             return aws_errors.fromStatus(result.status);
         };
         defer client.allocator.free(code);
-        std.log.err("IAM ListUsers error: {s} (status {d})", .{ code, @intFromEnum(result.status) });
-        inline for (@typeInfo(IamListUsersError).error_set.?) |entry| {
-            if (std.mem.eql(u8, entry.name, code)) return @field(IamListUsersError, entry.name);
+        std.log.err("IAM ListUsers error: {s} (status {d})", .{ code, @backingInt(result.status) });
+        inline for (@typeInfo(IamListUsersError).error_set.error_names.?) |name| {
+            if (std.mem.eql(u8, name, code)) return @field(IamListUsersError, name);
         }
         return aws_errors.fromCode(code) orelse aws_errors.fromStatus(result.status);
     }
@@ -162,7 +162,7 @@ fn buildBody(allocator: Allocator, params: Params) ![]u8 {
         try body.appendSlice(allocator, encoded);
     }
     if (params.max_items) |mi| {
-        const s = try std.fmt.allocPrint(allocator, "&MaxItems={d}", .{mi});
+        const s = try allocator.print("&MaxItems={d}", .{mi});
         defer allocator.free(s);
         try body.appendSlice(allocator, s);
     }
@@ -177,7 +177,7 @@ fn uriEncode(allocator: Allocator, input: []const u8) ![]u8 {
         if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_' or c == '.' or c == '~' or c == '/') {
             try out.append(allocator, c);
         } else {
-            const hex = try std.fmt.allocPrint(allocator, "%{X:0>2}", .{c});
+            const hex = try allocator.print("%{X:0>2}", .{c});
             defer allocator.free(hex);
             try out.appendSlice(allocator, hex);
         }
@@ -200,11 +200,11 @@ fn parseResponse(allocator: Allocator, body: []const u8) !Result {
     while (true) {
         const slice = users_block[offset..];
         const start_tag = "<member";
-        const m_start = std.mem.indexOf(u8, slice, start_tag) orelse break;
-        const gt = std.mem.indexOfScalarPos(u8, slice, m_start + start_tag.len, '>') orelse break;
+        const m_start = std.mem.find(u8, slice, start_tag) orelse break;
+        const gt = std.mem.findScalarPos(u8, slice, m_start + start_tag.len, '>') orelse break;
         const content_start = gt + 1;
         const end_tag = "</member>";
-        const m_end = std.mem.indexOf(u8, slice[content_start..], end_tag) orelse break;
+        const m_end = std.mem.find(u8, slice[content_start..], end_tag) orelse break;
         const member_content = slice[content_start .. content_start + m_end];
 
         const user = try parseMember(allocator, member_content);
