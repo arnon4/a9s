@@ -33,8 +33,8 @@ const RenderMode = enum {
 
 fn modeFor(size: Coord) RenderMode {
     const h: usize = @intCast(@max(0, size.y));
-    if (size.x >= @intFromEnum(Size.wide) and h >= logo.len + 11) return .logo;
-    if (size.x >= @intFromEnum(Size.medium) and h >= 12) return .medium;
+    if (size.x >= @backingInt(Size.wide) and h >= logo.len + 11) return .logo;
+    if (size.x >= @backingInt(Size.medium) and h >= 12) return .medium;
     if (h >= 5) return .compact;
     return .hidden;
 }

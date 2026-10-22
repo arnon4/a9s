@@ -250,7 +250,7 @@ fn truncateToColumns(s: []const u8, max_cols: usize) []const u8 {
 }
 
 fn buildLines(a: std.mem.Allocator, events: []const LogEventItem, msg_content_w: usize) ![]const DisplayLine {
-    const blank_ts = " " ** TS_DISPLAY_W;
+    const blank_ts: *const [TS_DISPLAY_W]u8 = &@splat(' ');
     var list: std.ArrayList(DisplayLine) = .empty;
 
     for (events) |ev| {

@@ -80,13 +80,13 @@ pub fn getCredentialReport(client: anytype) !GetCredentialReportResult {
 
     if (result.status != .ok) {
         const code = xml.extractTagContent(client.allocator, resp_body, "Code") catch {
-            std.log.err("IAM GetCredentialReport error: status {d}", .{@intFromEnum(result.status)});
+            std.log.err("IAM GetCredentialReport error: status {d}", .{@backingInt(result.status)});
             return aws_errors.fromStatus(result.status);
         };
         defer client.allocator.free(code);
-        std.log.err("IAM GetCredentialReport error: {s} (status {d})", .{ code, @intFromEnum(result.status) });
-        inline for (@typeInfo(IamGetCredentialReportError).error_set.?) |entry| {
-            if (std.mem.eql(u8, entry.name, code)) return @field(IamGetCredentialReportError, entry.name);
+        std.log.err("IAM GetCredentialReport error: {s} (status {d})", .{ code, @backingInt(result.status) });
+        inline for (@typeInfo(IamGetCredentialReportError).error_set.error_names.?) |name| {
+            if (std.mem.eql(u8, name, code)) return @field(IamGetCredentialReportError, name);
         }
         return aws_errors.fromCode(code) orelse aws_errors.fromStatus(result.status);
     }

@@ -95,7 +95,7 @@ fn buildRequestBody(allocator: Allocator, params: AssumeRoleParams) ![]u8 {
         try body.appendSlice(allocator, encoded);
     }
     if (params.duration_seconds) |dur| {
-        const dur_str = try std.fmt.allocPrint(allocator, "&DurationSeconds={d}", .{dur});
+        const dur_str = try allocator.print("&DurationSeconds={d}", .{dur});
         defer allocator.free(dur_str);
         try body.appendSlice(allocator, dur_str);
     }
@@ -114,9 +114,9 @@ test "buildRequestBody basic params" {
         .role_session_name = "my-session",
     });
     defer allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "Action=AssumeRole") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "RoleArn=arn%3Aaws%3Aiam%3A%3A123456789%3Arole%2FMyRole") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "RoleSessionName=my-session") != null);
+    try std.testing.expect(std.mem.find(u8, body, "Action=AssumeRole") != null);
+    try std.testing.expect(std.mem.find(u8, body, "RoleArn=arn%3Aaws%3Aiam%3A%3A123456789%3Arole%2FMyRole") != null);
+    try std.testing.expect(std.mem.find(u8, body, "RoleSessionName=my-session") != null);
 }
 
 test "buildRequestBody optional params" {
@@ -128,6 +128,6 @@ test "buildRequestBody optional params" {
         .duration_seconds = 3600,
     });
     defer allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "ExternalId=ext-123") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "DurationSeconds=3600") != null);
+    try std.testing.expect(std.mem.find(u8, body, "ExternalId=ext-123") != null);
+    try std.testing.expect(std.mem.find(u8, body, "DurationSeconds=3600") != null);
 }

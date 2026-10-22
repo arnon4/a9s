@@ -63,7 +63,7 @@ pub const Client = struct {
         const url = if (options.endpoint_url) |ep|
             try allocator.dupe(u8, ep)
         else
-            try std.fmt.allocPrint(allocator, "https://sts.{s}.amazonaws.com/", .{options.region});
+            try allocator.print("https://sts.{s}.amazonaws.com/", .{options.region});
 
         return .{
             .allocator = allocator,
@@ -88,18 +88,18 @@ pub const Client = struct {
     pub fn classifyError(self: *Client, status: std.http.Status, body: []const u8) anyerror {
         self.setErrorFromBody(status, body);
         const code = if (self.last_error) |e| e.code else {
-            std.log.err("STS error: status {d}, no XML error code in body", .{@intFromEnum(status)});
+            std.log.err("STS error: status {d}, no XML error code in body", .{@backingInt(status)});
             return aws_errors.fromStatus(status);
         };
-        std.log.err("STS error: {s} (status {d})", .{ code, @intFromEnum(status) });
-        inline for (@typeInfo(StsSpecificError).error_set.?) |entry| {
-            if (std.mem.eql(u8, entry.name, code)) return @field(StsSpecificError, entry.name);
+        std.log.err("STS error: {s} (status {d})", .{ code, @backingInt(status) });
+        inline for (@typeInfo(StsSpecificError).error_set.error_names.?) |name| {
+            if (std.mem.eql(u8, name, code)) return @field(StsSpecificError, name);
         }
         return aws_errors.fromCode(code) orelse aws_errors.fromStatus(status);
     }
 
     pub fn setErrorFromBody(self: *Client, status: std.http.Status, body: []const u8) void {
-        self.last_status = @intFromEnum(status);
+        self.last_status = @backingInt(status);
         const code = xml.extractTagContent(self.allocator, body, "Code") catch {
             // Fall back to raw body so callers can always see what STS returned.
             self.last_error = .{

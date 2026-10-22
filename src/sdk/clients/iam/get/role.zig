@@ -44,8 +44,7 @@ pub fn getRole(client: anytype, options: Options) !GetRoleResult {
     const encoded_name = try encodeName(client.allocator, options.role_name);
     defer client.allocator.free(encoded_name);
 
-    const body = try std.fmt.allocPrint(
-        client.allocator,
+    const body = try client.allocator.print(
         "Action=GetRole&Version=2010-05-08&RoleName={s}",
         .{encoded_name},
     );
@@ -102,13 +101,13 @@ pub fn getRole(client: anytype, options: Options) !GetRoleResult {
 
     if (result.status != .ok) {
         const code = xml.extractTagContent(client.allocator, resp_body, "Code") catch {
-            std.log.err("IAM GetRole error: status {d}", .{@intFromEnum(result.status)});
+            std.log.err("IAM GetRole error: status {d}", .{@backingInt(result.status)});
             return aws_errors.fromStatus(result.status);
         };
         defer client.allocator.free(code);
-        std.log.err("IAM GetRole error: {s} (status {d})", .{ code, @intFromEnum(result.status) });
-        inline for (@typeInfo(IamGetRoleError).error_set.?) |entry| {
-            if (std.mem.eql(u8, entry.name, code)) return @field(IamGetRoleError, entry.name);
+        std.log.err("IAM GetRole error: {s} (status {d})", .{ code, @backingInt(result.status) });
+        inline for (@typeInfo(IamGetRoleError).error_set.error_names.?) |name| {
+            if (std.mem.eql(u8, name, code)) return @field(IamGetRoleError, name);
         }
         return aws_errors.fromCode(code) orelse aws_errors.fromStatus(result.status);
     }
@@ -191,7 +190,7 @@ fn encodeName(allocator: Allocator, name: []const u8) ![]u8 {
         if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_' or c == '.') {
             try out.append(allocator, c);
         } else {
-            const hex = try std.fmt.allocPrint(allocator, "%{X:0>2}", .{c});
+            const hex = try allocator.print("%{X:0>2}", .{c});
             defer allocator.free(hex);
             try out.appendSlice(allocator, hex);
         }

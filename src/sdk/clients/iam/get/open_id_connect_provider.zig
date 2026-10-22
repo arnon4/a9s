@@ -36,8 +36,7 @@ pub fn getOpenIDConnectProvider(client: anytype, options: Options) !GetOpenIDCon
     const encoded_arn = try encodeArn(client.allocator, options.open_id_connect_provider_arn);
     defer client.allocator.free(encoded_arn);
 
-    const body = try std.fmt.allocPrint(
-        client.allocator,
+    const body = try client.allocator.print(
         "Action=GetOpenIDConnectProvider&Version=2010-05-08&OpenIDConnectProviderArn={s}",
         .{encoded_arn},
     );
@@ -94,13 +93,13 @@ pub fn getOpenIDConnectProvider(client: anytype, options: Options) !GetOpenIDCon
 
     if (result.status != .ok) {
         const code = xml.extractTagContent(client.allocator, resp_body, "Code") catch {
-            std.log.err("IAM GetOpenIDConnectProvider error: status {d}", .{@intFromEnum(result.status)});
+            std.log.err("IAM GetOpenIDConnectProvider error: status {d}", .{@backingInt(result.status)});
             return aws_errors.fromStatus(result.status);
         };
         defer client.allocator.free(code);
-        std.log.err("IAM GetOpenIDConnectProvider error: {s} (status {d})", .{ code, @intFromEnum(result.status) });
-        inline for (@typeInfo(IamGetOpenIDConnectProviderError).error_set.?) |entry| {
-            if (std.mem.eql(u8, entry.name, code)) return @field(IamGetOpenIDConnectProviderError, entry.name);
+        std.log.err("IAM GetOpenIDConnectProvider error: {s} (status {d})", .{ code, @backingInt(result.status) });
+        inline for (@typeInfo(IamGetOpenIDConnectProviderError).error_set.error_names.?) |name| {
+            if (std.mem.eql(u8, name, code)) return @field(IamGetOpenIDConnectProviderError, name);
         }
         return aws_errors.fromCode(code) orelse aws_errors.fromStatus(result.status);
     }
@@ -115,7 +114,7 @@ fn encodeArn(allocator: Allocator, arn: []const u8) ![]u8 {
         if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_' or c == '.' or c == '~') {
             try out.append(allocator, c);
         } else {
-            const hex = try std.fmt.allocPrint(allocator, "%{X:0>2}", .{c});
+            const hex = try allocator.print("%{X:0>2}", .{c});
             defer allocator.free(hex);
             try out.appendSlice(allocator, hex);
         }
@@ -142,10 +141,10 @@ fn parseStringMembers(allocator: Allocator, body: []const u8, list_tag: []const 
     while (true) {
         const slice = block[offset..];
         const start_tag = "<member>";
-        const m_start = std.mem.indexOf(u8, slice, start_tag) orelse break;
+        const m_start = std.mem.find(u8, slice, start_tag) orelse break;
         const content_start = m_start + start_tag.len;
         const end_tag = "</member>";
-        const m_end = std.mem.indexOf(u8, slice[content_start..], end_tag) orelse break;
+        const m_end = std.mem.find(u8, slice[content_start..], end_tag) orelse break;
         const value = try allocator.dupe(u8, slice[content_start .. content_start + m_end]);
         errdefer allocator.free(value);
         try items.append(allocator, value);

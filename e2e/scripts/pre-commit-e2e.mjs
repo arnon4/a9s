@@ -40,7 +40,7 @@ for (const f of files) {
 const missing = [];
 for (const m of touchedModules) {
   const prefixes = MODULE_MAP[m] ?? [m];
-  const hasTest = prefixes.some((p) => existsSync(path.join(E2E_DIR, "tests", `${p}.test.js`)));
+  const hasTest = prefixes.length === 0 || prefixes.some((p) => existsSync(path.join(E2E_DIR, "tests", `${p}.test.js`)));
   if (!hasTest) missing.push(m);
 }
 
@@ -73,7 +73,11 @@ if (isGlobalChange(files)) {
   console.log("Shared/core files changed — running full e2e suite.");
   testCmd = "npx @microsoft/tui-test";
 } else {
-  const prefixes = [...touchedModules].flatMap((m) => MODULE_MAP[m]);
+  const prefixes = [...touchedModules].flatMap((m) => MODULE_MAP[m] ?? [m]);
+  if (prefixes.length === 0) {
+    console.log("Only SDK-only modules touched — no e2e tests to run.");
+    process.exit(0);
+  }
   const regexArgs = prefixes.map((p) => `"tests.${p}"`);
   console.log(`Modules affected: ${[...touchedModules].join(", ")}`);
   testCmd = `npx @microsoft/tui-test ${regexArgs.join(" ")}`;

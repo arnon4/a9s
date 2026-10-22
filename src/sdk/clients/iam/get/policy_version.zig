@@ -39,8 +39,7 @@ pub fn getPolicyVersion(client: anytype, options: Options) !GetPolicyVersionResu
     const encoded_version = try encode(client.allocator, options.version_id);
     defer client.allocator.free(encoded_version);
 
-    const body = try std.fmt.allocPrint(
-        client.allocator,
+    const body = try client.allocator.print(
         "Action=GetPolicyVersion&Version=2010-05-08&PolicyArn={s}&VersionId={s}",
         .{ encoded_arn, encoded_version },
     );
@@ -97,13 +96,13 @@ pub fn getPolicyVersion(client: anytype, options: Options) !GetPolicyVersionResu
 
     if (result.status != .ok) {
         const code = xml.extractTagContent(client.allocator, resp_body, "Code") catch {
-            std.log.err("IAM GetPolicyVersion error: status {d}", .{@intFromEnum(result.status)});
+            std.log.err("IAM GetPolicyVersion error: status {d}", .{@backingInt(result.status)});
             return aws_errors.fromStatus(result.status);
         };
         defer client.allocator.free(code);
-        std.log.err("IAM GetPolicyVersion error: {s} (status {d})", .{ code, @intFromEnum(result.status) });
-        inline for (@typeInfo(IamGetPolicyVersionError).error_set.?) |entry| {
-            if (std.mem.eql(u8, entry.name, code)) return @field(IamGetPolicyVersionError, entry.name);
+        std.log.err("IAM GetPolicyVersion error: {s} (status {d})", .{ code, @backingInt(result.status) });
+        inline for (@typeInfo(IamGetPolicyVersionError).error_set.error_names.?) |name| {
+            if (std.mem.eql(u8, name, code)) return @field(IamGetPolicyVersionError, name);
         }
         return aws_errors.fromCode(code) orelse aws_errors.fromStatus(result.status);
     }
@@ -118,7 +117,7 @@ fn encode(allocator: Allocator, input: []const u8) ![]u8 {
         if (std.ascii.isAlphanumeric(c) or c == '-' or c == '_' or c == '.' or c == '~' or c == '/') {
             try out.append(allocator, c);
         } else {
-            const hex = try std.fmt.allocPrint(allocator, "%{X:0>2}", .{c});
+            const hex = try allocator.print("%{X:0>2}", .{c});
             defer allocator.free(hex);
             try out.appendSlice(allocator, hex);
         }

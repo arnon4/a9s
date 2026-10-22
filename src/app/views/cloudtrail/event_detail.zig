@@ -249,8 +249,8 @@ test "prettyPrintJson formats compact event" {
     const allocator = std.testing.allocator;
     const pretty = try prettyPrintJson(allocator, "{\"eventVersion\":\"1.08\",\"eventName\":\"ConsoleLogin\"}");
     defer allocator.free(pretty);
-    try std.testing.expect(std.mem.indexOf(u8, pretty, "\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, pretty, "\"eventName\": \"ConsoleLogin\"") != null);
+    try std.testing.expect(std.mem.find(u8, pretty, "\n") != null);
+    try std.testing.expect(std.mem.find(u8, pretty, "\"eventName\": \"ConsoleLogin\"") != null);
 }
 
 test "prettyPrintJson falls back on invalid json" {

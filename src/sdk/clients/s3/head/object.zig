@@ -60,14 +60,14 @@ pub fn headObjectWithIo(
 
     const request_url = if (virtual_hosted) blk: {
         if (options.version_id) |vid|
-            break :blk try std.fmt.allocPrint(allocator, "https://{s}.s3.{s}.amazonaws.com/{s}?versionId={s}", .{ options.bucket, region, encoded_key, vid })
+            break :blk try allocator.print("https://{s}.s3.{s}.amazonaws.com/{s}?versionId={s}", .{ options.bucket, region, encoded_key, vid })
         else
-            break :blk try std.fmt.allocPrint(allocator, "https://{s}.s3.{s}.amazonaws.com/{s}", .{ options.bucket, region, encoded_key });
+            break :blk try allocator.print("https://{s}.s3.{s}.amazonaws.com/{s}", .{ options.bucket, region, encoded_key });
     } else blk: {
         if (options.version_id) |vid|
-            break :blk try std.fmt.allocPrint(allocator, "{s}/{s}/{s}?versionId={s}", .{ endpoint, options.bucket, encoded_key, vid })
+            break :blk try allocator.print("{s}/{s}/{s}?versionId={s}", .{ endpoint, options.bucket, encoded_key, vid })
         else
-            break :blk try std.fmt.allocPrint(allocator, "{s}/{s}/{s}", .{ endpoint, options.bucket, encoded_key });
+            break :blk try allocator.print("{s}/{s}/{s}", .{ endpoint, options.bucket, encoded_key });
     };
     defer allocator.free(request_url);
 
@@ -155,7 +155,7 @@ fn extractHeader(bytes: []const u8, header_name: []const u8) ?[]const u8 {
     _ = it.next(); // skip status line
     while (it.next()) |line| {
         if (line.len == 0) break;
-        const colon = std.mem.indexOfScalar(u8, line, ':') orelse continue;
+        const colon = std.mem.findScalar(u8, line, ':') orelse continue;
         const name = std.mem.trim(u8, line[0..colon], " \t");
         if (std.ascii.eqlIgnoreCase(name, header_name)) {
             return std.mem.trim(u8, line[colon + 1 ..], " \t");

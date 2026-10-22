@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) void {
-    const optimize = std.builtin.OptimizeMode.ReleaseSmall;
+    const optimize = std.lang.Optimize.small;
     const target = b.standardTargetOptions(.{});
 
     const exe = b.addExecutable(.{

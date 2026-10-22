@@ -115,17 +115,17 @@ pub fn listTrailsWithIo(
         const code_str = extractJsonString(allocator, response_body, "__type") catch null;
         defer if (code_str) |c| allocator.free(c);
         if (code_str) |full_code| {
-            const code = if (std.mem.lastIndexOfScalar(u8, full_code, '#')) |idx|
+            const code = if (std.mem.findScalarLast(u8, full_code, '#')) |idx|
                 full_code[idx + 1 ..]
             else
                 full_code;
-            std.log.err("CloudTrail ListTrails error: {s} (status {d})", .{ code, @intFromEnum(result.status) });
-            inline for (@typeInfo(ListTrailsError).error_set.?) |entry| {
-                if (std.mem.eql(u8, entry.name, code)) return @field(ListTrailsError, entry.name);
+            std.log.err("CloudTrail ListTrails error: {s} (status {d})", .{ code, @backingInt(result.status) });
+            inline for (@typeInfo(ListTrailsError).error_set.error_names.?) |name| {
+                if (std.mem.eql(u8, name, code)) return @field(ListTrailsError, name);
             }
             return aws_errors.fromCode(code) orelse aws_errors.fromStatus(result.status);
         }
-        std.log.err("CloudTrail ListTrails error: status {d} body={s}", .{ @intFromEnum(result.status), response_body });
+        std.log.err("CloudTrail ListTrails error: status {d} body={s}", .{ @backingInt(result.status), response_body });
         return aws_errors.fromStatus(result.status);
     }
 
@@ -166,16 +166,16 @@ fn writeJsonStringField(buf: *std.ArrayList(u8), allocator: Allocator, key: []co
 // ============================================================================
 
 fn extractJsonString(allocator: Allocator, json: []const u8, key: []const u8) ![]u8 {
-    const needle = try std.fmt.allocPrint(allocator, "\"{s}\"", .{key});
+    const needle = try allocator.print("\"{s}\"", .{key});
     defer allocator.free(needle);
 
-    const pos = std.mem.indexOf(u8, json, needle) orelse return error.KeyNotFound;
+    const pos = std.mem.find(u8, json, needle) orelse return error.KeyNotFound;
     const after_key = json[pos + needle.len ..];
-    const colon = std.mem.indexOfScalar(u8, after_key, ':') orelse return error.KeyNotFound;
+    const colon = std.mem.findScalar(u8, after_key, ':') orelse return error.KeyNotFound;
     const after_colon = std.mem.trimStart(u8, after_key[colon + 1 ..], " \t\r\n");
     if (after_colon.len == 0 or after_colon[0] != '"') return error.KeyNotFound;
     const content = after_colon[1..];
-    const end = std.mem.indexOfScalar(u8, content, '"') orelse return error.KeyNotFound;
+    const end = std.mem.findScalar(u8, content, '"') orelse return error.KeyNotFound;
     return allocator.dupe(u8, content[0..end]);
 }
 
@@ -267,7 +267,7 @@ test "buildBody with next_token" {
     const allocator = std.testing.allocator;
     const body = try buildBody(allocator, .{ .next_token = "tok123" });
     defer allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"NextToken\":\"tok123\"") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"NextToken\":\"tok123\"") != null);
 }
 
 test "parseResponse basic" {

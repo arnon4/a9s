@@ -101,7 +101,7 @@ fn createCanonicalQueryString(allocator: Allocator, query: ?[]const u8) ![]u8 {
     while (iter.next()) |param| {
         if (param.len == 0) continue;
 
-        if (std.mem.indexOf(u8, param, "=")) |eq_pos| {
+        if (std.mem.find(u8, param, "=")) |eq_pos| {
             try params.append(allocator, .{
                 .key = param[0..eq_pos],
                 .value = param[eq_pos + 1 ..],
@@ -293,7 +293,7 @@ fn createStringToSign(
 
 /// Get credential scope string
 fn getCredentialScope(allocator: Allocator, date_stamp: []const u8, region: []const u8, service: []const u8) ![]u8 {
-    return try std.fmt.allocPrint(allocator, "{s}/{s}/{s}/aws4_request", .{ date_stamp, region, service });
+    return try allocator.print("{s}/{s}/{s}/aws4_request", .{ date_stamp, region, service });
 }
 
 /// Calculate the signing key
@@ -439,8 +439,7 @@ pub fn sign(
     defer allocator.free(signature);
 
     // Build authorization header
-    const auth_header = try std.fmt.allocPrint(
-        allocator,
+    const auth_header = try allocator.print(
         "AWS4-HMAC-SHA256 Credential={s}/{s}, SignedHeaders={s}, Signature={s}",
         .{ config.access_key, credential_scope, header_result.signed, signature },
     );
@@ -611,6 +610,6 @@ test "full signing produces valid authorization header" {
     // Verify authorization header format
     const auth = signed.getHeader("Authorization").?;
     try std.testing.expect(std.mem.startsWith(u8, auth, "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/"));
-    try std.testing.expect(std.mem.indexOf(u8, auth, "SignedHeaders=") != null);
-    try std.testing.expect(std.mem.indexOf(u8, auth, "Signature=") != null);
+    try std.testing.expect(std.mem.find(u8, auth, "SignedHeaders=") != null);
+    try std.testing.expect(std.mem.find(u8, auth, "Signature=") != null);
 }

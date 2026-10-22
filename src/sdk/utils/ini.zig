@@ -44,7 +44,7 @@ pub const IniFile = struct {
 
             // Check for section header
             if (trimmed[0] == '[') {
-                if (std.mem.indexOfScalar(u8, trimmed, ']')) |end| {
+                if (std.mem.findScalar(u8, trimmed, ']')) |end| {
                     const section_name = std.mem.trim(u8, trimmed[1..end], " \t");
                     const section_key = try allocator.dupe(u8, section_name);
                     errdefer allocator.free(section_key);
@@ -57,7 +57,7 @@ pub const IniFile = struct {
 
             // Parse key = value
             if (current_section) |section_name| {
-                if (std.mem.indexOfScalar(u8, trimmed, '=')) |eq_pos| {
+                if (std.mem.findScalar(u8, trimmed, '=')) |eq_pos| {
                     const key = std.mem.trim(u8, trimmed[0..eq_pos], " \t");
                     const value = std.mem.trim(u8, trimmed[eq_pos + 1 ..], " \t");
 

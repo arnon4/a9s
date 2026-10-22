@@ -272,7 +272,9 @@ pub fn handleEvent(self: *IamPolicyDocumentView, event: Event, _: ViewContext) !
                 'q' => return .{ .push = .{ .confirm = ConfirmView.init(self.fg_color, self.bg_color) } },
                 'r' => self.refresh() catch {},
                 'j' => self.scroll += 1,
-                'k' => if (self.scroll > 0) { self.scroll -= 1; },
+                'k' => if (self.scroll > 0) {
+                    self.scroll -= 1;
+                },
                 'g' => {
                     if (self.pending_g) {
                         self.scroll = 0;
@@ -298,7 +300,9 @@ pub fn handleEvent(self: *IamPolicyDocumentView, event: Event, _: ViewContext) !
                 else => self.pending_g = false,
             },
             .down => self.scroll += 1,
-            .up => if (self.scroll > 0) { self.scroll -= 1; },
+            .up => if (self.scroll > 0) {
+                self.scroll -= 1;
+            },
             .escape => {
                 if (self.committed_filter != null) {
                     if (self.committed_filter) |f| {
@@ -428,8 +432,8 @@ test "prettyPrintJson formats compact document" {
     const allocator = std.testing.allocator;
     const pretty = try prettyPrintJson(allocator, "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\"}]}");
     defer allocator.free(pretty);
-    try std.testing.expect(std.mem.indexOf(u8, pretty, "\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, pretty, "\"Version\": \"2012-10-17\"") != null);
+    try std.testing.expect(std.mem.find(u8, pretty, "\n") != null);
+    try std.testing.expect(std.mem.find(u8, pretty, "\"Version\": \"2012-10-17\"") != null);
 }
 
 test "prettyPrintJson falls back on invalid json" {

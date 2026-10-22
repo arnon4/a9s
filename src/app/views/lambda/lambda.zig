@@ -344,7 +344,7 @@ pub fn LambdaViewGeneric(comptime fetchFn: fn (*FetchCtx) void) type {
                                         }
                                     }
                                 }
-                                break :blk try std.fmt.allocPrint(ctx.allocator, "/aws/lambda/{s}", .{self.function_name});
+                                break :blk try ctx.allocator.print("/aws/lambda/{s}", .{self.function_name});
                             };
                             defer ctx.allocator.free(log_group);
                             const v = try LogStreamsView.init(
@@ -360,7 +360,7 @@ pub fn LambdaViewGeneric(comptime fetchFn: fn (*FetchCtx) void) type {
                         } else if (self.action_idx == 2) {
                             if (!self.fetch_ctx.done.load(.acquire)) return .none;
                             const role_arn = if (self.fetch_ctx.result) |*r| r.role else return .none;
-                            const role_name = if (std.mem.lastIndexOfScalar(u8, role_arn, '/')) |i|
+                            const role_name = if (std.mem.findScalarLast(u8, role_arn, '/')) |i|
                                 role_arn[i + 1 ..]
                             else
                                 role_arn;

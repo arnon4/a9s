@@ -14,6 +14,9 @@ export const MODULE_MAP = {
   cloudtrail: ["cloudtrail"],
   auth: ["auth"],
   help: ["help"],
+  // SDK-only clients (no view): nothing to drive from the TUI, so no e2e file required.
+  cloudwatch: [],
+  sts: [],
 };
 
 // Changes under these paths can affect every view — run the full suite

@@ -362,8 +362,8 @@ test "prettyPrintJson formats compact document" {
     const allocator = std.testing.allocator;
     const pretty = try prettyPrintJson(allocator, "{\"user\":\"admin\",\"password\":\"hunter2\"}");
     defer allocator.free(pretty);
-    try std.testing.expect(std.mem.indexOf(u8, pretty, "\n") != null);
-    try std.testing.expect(std.mem.indexOf(u8, pretty, "\"user\": \"admin\"") != null);
+    try std.testing.expect(std.mem.find(u8, pretty, "\n") != null);
+    try std.testing.expect(std.mem.find(u8, pretty, "\"user\": \"admin\"") != null);
 }
 
 test "prettyPrintJson falls back on plain text" {

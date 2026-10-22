@@ -48,9 +48,9 @@ fn findAvailableName(allocator: std.mem.Allocator, io: std.Io, filename: []const
     var count: usize = 1;
     while (count < 1000) : (count += 1) {
         const candidate = if (ext.len > 0)
-            try std.fmt.allocPrint(allocator, "{s} ({d}){s}", .{ stem, count, ext })
+            try allocator.print("{s} ({d}){s}", .{ stem, count, ext })
         else
-            try std.fmt.allocPrint(allocator, "{s} ({d})", .{ stem, count });
+            try allocator.print("{s} ({d})", .{ stem, count });
         if (!pathExists(io, candidate)) return candidate;
         allocator.free(candidate);
     }
@@ -233,12 +233,12 @@ fn transitionIfDone(self: *S3DownloadView) void {
     const body: []u8 = blk: {
         if (ctx.err) |e| {
             if (ctx.result_path) |p| ctx.allocator.free(p);
-            break :blk std.fmt.allocPrint(ctx.allocator, "Error: {s}", .{@errorName(e)}) catch unreachable;
+            break :blk ctx.allocator.print("Error: {s}", .{@errorName(e)}) catch unreachable;
         }
         const path = ctx.result_path orelse (ctx.allocator.dupe(u8, "unknown path") catch unreachable);
         ctx.result_path = null;
         defer ctx.allocator.free(path);
-        break :blk std.fmt.allocPrint(ctx.allocator, "Downloaded to:\n{s}", .{path}) catch unreachable;
+        break :blk ctx.allocator.print("Downloaded to:\n{s}", .{path}) catch unreachable;
     };
     const title = ctx.allocator.dupe(u8, "Download") catch unreachable;
 

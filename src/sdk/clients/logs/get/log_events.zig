@@ -192,7 +192,7 @@ fn writeJsonStringField(buf: *std.ArrayList(u8), allocator: Allocator, key: []co
 fn writeJsonI64Field(buf: *std.ArrayList(u8), allocator: Allocator, key: []const u8, value: i64, first: *bool) !void {
     if (!first.*) try buf.appendSlice(allocator, ",");
     first.* = false;
-    const s = try std.fmt.allocPrint(allocator, "\"{s}\":{d}", .{ key, value });
+    const s = try allocator.print("\"{s}\":{d}", .{ key, value });
     defer allocator.free(s);
     try buf.appendSlice(allocator, s);
 }
@@ -200,7 +200,7 @@ fn writeJsonI64Field(buf: *std.ArrayList(u8), allocator: Allocator, key: []const
 fn writeJsonU32Field(buf: *std.ArrayList(u8), allocator: Allocator, key: []const u8, value: u32, first: *bool) !void {
     if (!first.*) try buf.appendSlice(allocator, ",");
     first.* = false;
-    const s = try std.fmt.allocPrint(allocator, "\"{s}\":{d}", .{ key, value });
+    const s = try allocator.print("\"{s}\":{d}", .{ key, value });
     defer allocator.free(s);
     try buf.appendSlice(allocator, s);
 }
@@ -208,7 +208,7 @@ fn writeJsonU32Field(buf: *std.ArrayList(u8), allocator: Allocator, key: []const
 fn writeJsonBoolField(buf: *std.ArrayList(u8), allocator: Allocator, key: []const u8, value: bool, first: *bool) !void {
     if (!first.*) try buf.appendSlice(allocator, ",");
     first.* = false;
-    const s = try std.fmt.allocPrint(allocator, "\"{s}\":{s}", .{ key, if (value) "true" else "false" });
+    const s = try allocator.print("\"{s}\":{s}", .{ key, if (value) "true" else "false" });
     defer allocator.free(s);
     try buf.appendSlice(allocator, s);
 }
@@ -308,8 +308,8 @@ test "buildBody required field only" {
         .log_stream_name = "2024/01/15/stream",
     });
     defer allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"logGroupName\":\"/aws/lambda/fn\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"logStreamName\":\"2024/01/15/stream\"") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"logGroupName\":\"/aws/lambda/fn\"") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"logStreamName\":\"2024/01/15/stream\"") != null);
 }
 
 test "buildBody with time range and limit" {
@@ -323,10 +323,10 @@ test "buildBody with time range and limit" {
         .start_from_head = true,
     });
     defer allocator.free(body);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"startTime\":1700000000000") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"endTime\":1700003600000") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"limit\":100") != null);
-    try std.testing.expect(std.mem.indexOf(u8, body, "\"startFromHead\":true") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"startTime\":1700000000000") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"endTime\":1700003600000") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"limit\":100") != null);
+    try std.testing.expect(std.mem.find(u8, body, "\"startFromHead\":true") != null);
 }
 
 test "parseResponse basic" {

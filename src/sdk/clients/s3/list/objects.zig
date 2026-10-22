@@ -150,11 +150,11 @@ pub fn listObjects(client: anytype, options: Options) !Result {
     defer query.deinit(client.allocator);
     try query.appendSlice(client.allocator, "?list-type=2");
 
-    inline for (@typeInfo(Params).@"struct".fields) |field| {
-        if (@field(options.query_params, field.name)) |v| {
+    inline for (@typeInfo(Params).@"struct".field_names) |field_name| {
+        if (@field(options.query_params, field_name)) |v| {
             const param_name: []const u8 = comptime blk: {
-                var buf: [field.name.len]u8 = undefined;
-                for (field.name, 0..) |c, i| buf[i] = if (c == '_') '-' else c;
+                var buf: [field_name.len]u8 = undefined;
+                for (field_name, 0..) |c, i| buf[i] = if (c == '_') '-' else c;
                 const frozen = buf;
                 break :blk &frozen;
             };
@@ -165,7 +165,7 @@ pub fn listObjects(client: anytype, options: Options) !Result {
                 []const u8 => try query.appendSlice(client.allocator, v),
                 bool => try query.appendSlice(client.allocator, if (v) "true" else "false"),
                 usize => {
-                    const s = try std.fmt.allocPrint(client.allocator, "{d}", .{v});
+                    const s = try client.allocator.print("{d}", .{v});
                     defer client.allocator.free(s);
                     try query.appendSlice(client.allocator, s);
                 },
@@ -175,9 +175,9 @@ pub fn listObjects(client: anytype, options: Options) !Result {
     }
 
     const request_url = if (client.virtual_hosted)
-        try std.fmt.allocPrint(client.allocator, "https://{s}.s3.{s}.amazonaws.com{s}", .{ options.bucket, client.region, query.items })
+        try client.allocator.print("https://{s}.s3.{s}.amazonaws.com{s}", .{ options.bucket, client.region, query.items })
     else
-        try std.fmt.allocPrint(client.allocator, "{s}/{s}{s}", .{ client.endpoint, options.bucket, query.items });
+        try client.allocator.print("{s}/{s}{s}", .{ client.endpoint, options.bucket, query.items });
     defer client.allocator.free(request_url);
 
     var extra_headers = std.StringHashMap([]const u8).init(client.allocator);
@@ -239,9 +239,9 @@ pub fn listObjects(client: anytype, options: Options) !Result {
         const code_str = xml.extractTagContent(client.allocator, resp_body, "Code") catch null;
         defer if (code_str) |c| client.allocator.free(c);
         if (code_str) |c| {
-            std.log.err("S3 ListObjects error: {s} (status {d})", .{ c, @intFromEnum(result.status) });
-            inline for (@typeInfo(listObjectsError).error_set.?) |entry| {
-                if (std.mem.eql(u8, entry.name, c)) return @field(listObjectsError, entry.name);
+            std.log.err("S3 ListObjects error: {s} (status {d})", .{ c, @backingInt(result.status) });
+            inline for (@typeInfo(listObjectsError).error_set.error_names.?) |name| {
+                if (std.mem.eql(u8, name, c)) return @field(listObjectsError, name);
             }
             return aws_errors.fromCode(c) orelse aws_errors.fromStatus(result.status);
         }
@@ -325,9 +325,9 @@ fn parseObjects(allocator: Allocator, body: []const u8) !Result {
         const open_tag = "<Contents>";
         const close_tag = "</Contents>";
         var search = body;
-        while (std.mem.indexOf(u8, search, open_tag)) |start| {
+        while (std.mem.find(u8, search, open_tag)) |start| {
             const content_start = start + open_tag.len;
-            const end = std.mem.indexOf(u8, search[content_start..], close_tag) orelse break;
+            const end = std.mem.find(u8, search[content_start..], close_tag) orelse break;
             const block = search[content_start .. content_start + end];
             try objects.append(allocator, try parseObject(allocator, block));
             search = search[content_start + end + close_tag.len ..];
@@ -343,9 +343,9 @@ fn parseObjects(allocator: Allocator, body: []const u8) !Result {
         const open_tag = "<CommonPrefixes>";
         const close_tag = "</CommonPrefixes>";
         var search = body;
-        while (std.mem.indexOf(u8, search, open_tag)) |start| {
+        while (std.mem.find(u8, search, open_tag)) |start| {
             const content_start = start + open_tag.len;
-            const end = std.mem.indexOf(u8, search[content_start..], close_tag) orelse break;
+            const end = std.mem.find(u8, search[content_start..], close_tag) orelse break;
             const block = search[content_start .. content_start + end];
             try cp_list.append(allocator, try xml.extractTagContent(allocator, block, "Prefix"));
             search = search[content_start + end + close_tag.len ..];

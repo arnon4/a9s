@@ -178,13 +178,12 @@ pub const FunctionConfiguration = struct {
 
 pub fn getFunctionConfiguration(client: anytype, options: Options) !FunctionConfiguration {
     const qualifier_suffix = if (options.qualifier) |q|
-        try std.fmt.allocPrint(client.allocator, "?Qualifier={s}", .{q})
+        try client.allocator.print("?Qualifier={s}", .{q})
     else
         try client.allocator.dupe(u8, "");
     defer client.allocator.free(qualifier_suffix);
 
-    const request_url = try std.fmt.allocPrint(
-        client.allocator,
+    const request_url = try client.allocator.print(
         "{s}/2015-03-31/functions/{s}/configuration{s}",
         .{ client.endpoint, options.function_name, qualifier_suffix },
     );
@@ -241,9 +240,9 @@ pub fn getFunctionConfiguration(client: anytype, options: Options) !FunctionConf
             extractJsonString(client.allocator, resp_body, "Code") catch null;
         defer if (code_str) |c| client.allocator.free(c);
         if (code_str) |c| {
-            std.log.err("Lambda GetFunctionConfiguration error: {s} (status {d})", .{ c, @intFromEnum(result.status) });
-            inline for (@typeInfo(getFunctionConfigurationError).error_set.?) |entry| {
-                if (std.mem.eql(u8, entry.name, c)) return @field(getFunctionConfigurationError, entry.name);
+            std.log.err("Lambda GetFunctionConfiguration error: {s} (status {d})", .{ c, @backingInt(result.status) });
+            inline for (@typeInfo(getFunctionConfigurationError).error_set.error_names.?) |name| {
+                if (std.mem.eql(u8, name, c)) return @field(getFunctionConfigurationError, name);
             }
             return aws_errors.fromCode(c) orelse aws_errors.fromStatus(result.status);
         }
@@ -254,16 +253,16 @@ pub fn getFunctionConfiguration(client: anytype, options: Options) !FunctionConf
 }
 
 fn extractJsonString(allocator: Allocator, json: []const u8, key: []const u8) ![]u8 {
-    const needle = try std.fmt.allocPrint(allocator, "\"{s}\"", .{key});
+    const needle = try allocator.print("\"{s}\"", .{key});
     defer allocator.free(needle);
 
-    const pos = std.mem.indexOf(u8, json, needle) orelse return error.KeyNotFound;
+    const pos = std.mem.find(u8, json, needle) orelse return error.KeyNotFound;
     const after_key = json[pos + needle.len ..];
-    const colon = std.mem.indexOfScalar(u8, after_key, ':') orelse return error.KeyNotFound;
+    const colon = std.mem.findScalar(u8, after_key, ':') orelse return error.KeyNotFound;
     const after_colon = std.mem.trimStart(u8, after_key[colon + 1 ..], " \t\r\n");
     if (after_colon.len == 0 or after_colon[0] != '"') return error.KeyNotFound;
     const content = after_colon[1..];
-    const end = std.mem.indexOfScalar(u8, content, '"') orelse return error.KeyNotFound;
+    const end = std.mem.findScalar(u8, content, '"') orelse return error.KeyNotFound;
     return allocator.dupe(u8, content[0..end]);
 }
 

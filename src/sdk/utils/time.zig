@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
-const allocPrint = std.fmt.allocPrint;
 
 fn isLeapYear(year: i64) bool {
     return @mod(year, 4) == 0 and (@mod(year, 100) != 0 or @mod(year, 400) == 0);
@@ -66,7 +65,7 @@ pub fn secondsToDate(allocator: Allocator, timestamp: i64) ![]u8 {
     const hour_pad = if (hours < 10) "0" else "";
     const minute_pad = if (minutes < 10) "0" else "";
     const second_pad = if (seconds < 10) "0" else "";
-    return try std.fmt.allocPrint(allocator, "{d}{s}{d}{s}{d}T{s}{d}{s}{d}{s}{d}Z", .{
+    return try allocator.print("{d}{s}{d}{s}{d}T{s}{d}{s}{d}{s}{d}Z", .{
         year,
         month_pad,
         month,
@@ -133,11 +132,11 @@ pub fn parseIso8601ToTimestamp(iso_str: []const u8) ?i64 {
 }
 
 test "Timestamp works" {
-    var dbg = std.heap.DebugAllocator(.{}){};
+    var dbg: std.heap.SafeAllocator = .init(std.heap.page_allocator, .{});
     const alloc = dbg.allocator();
     defer {
-        const deinit_status = dbg.deinit();
-        if (deinit_status == .leak) {
+        const leaks = dbg.deinit();
+        if (leaks != 0) {
             std.debug.print("leak detected\n", .{});
         }
     }

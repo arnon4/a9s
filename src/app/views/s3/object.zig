@@ -89,7 +89,7 @@ fn headThread(ctx: *HeadCtx) void {
 }
 
 pub fn isTextMimeType(ct: []const u8) bool {
-    const base = if (std.mem.indexOfScalar(u8, ct, ';')) |i| ct[0..i] else ct;
+    const base = if (std.mem.findScalar(u8, ct, ';')) |i| ct[0..i] else ct;
     const trimmed = std.mem.trimEnd(u8, base, " ");
     if (std.mem.startsWith(u8, trimmed, "text/")) return true;
     const text_app = [_][]const u8{
@@ -159,11 +159,11 @@ pub fn S3ObjectViewGeneric(comptime headFn: fn (*HeadCtx) void) type {
             errdefer allocator.free(bucket_owned);
             const region_owned = try allocator.dupe(u8, region);
             errdefer allocator.free(region_owned);
-            const s3_uri = try std.fmt.allocPrint(allocator, "s3://{s}/{s}", .{ bucket, obj.key });
+            const s3_uri = try allocator.print("s3://{s}/{s}", .{ bucket, obj.key });
             errdefer allocator.free(s3_uri);
-            const arn = try std.fmt.allocPrint(allocator, "arn:aws:s3:::{s}/{s}", .{ bucket, obj.key });
+            const arn = try allocator.print("arn:aws:s3:::{s}/{s}", .{ bucket, obj.key });
             errdefer allocator.free(arn);
-            const object_url = try std.fmt.allocPrint(allocator, "https://{s}.s3.{s}.amazonaws.com/{s}", .{ bucket, region, obj.key });
+            const object_url = try allocator.print("https://{s}.s3.{s}.amazonaws.com/{s}", .{ bucket, region, obj.key });
             errdefer allocator.free(object_url);
             const etag = try allocator.dupe(u8, obj.etag);
             errdefer allocator.free(etag);
