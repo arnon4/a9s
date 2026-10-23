@@ -238,6 +238,16 @@ pub fn parseTags(allocator: Allocator, src: []const u8) ![]Tag {
     return tags.toOwnedSlice(allocator);
 }
 
+/// Unescaped value of the `Name` tag in `src`, or an empty string.
+pub fn parseNameTag(allocator: Allocator, src: []const u8) ![]u8 {
+    const tags = try parseTags(allocator, src);
+    defer freeTags(allocator, tags);
+    for (tags) |t| {
+        if (std.mem.eql(u8, t.key, "Name")) return allocator.dupe(u8, t.value);
+    }
+    return allocator.dupe(u8, "");
+}
+
 pub fn parseAssociations(
     allocator: Allocator,
     src: []const u8,

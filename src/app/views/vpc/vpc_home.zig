@@ -10,6 +10,10 @@ const List = @import("../../../ui/list.zig");
 const ConfirmView = @import("../../../ui/confirm.zig");
 const VpcsView = @import("vpcs.zig");
 const SubnetsView = @import("subnets.zig");
+const RouteTablesView = @import("route_tables.zig");
+const InternetGatewaysView = @import("internet_gateways.zig");
+const NetworkAclsView = @import("network_acls.zig");
+const SecurityGroupsView = @import("security_groups.zig");
 
 const VpcHomeView = @This();
 pub const name: []const u8 = "VPC";
@@ -17,6 +21,10 @@ pub const name: []const u8 = "VPC";
 const MENU_ITEMS = [_][]const u8{
     "VPCs",
     "Subnets",
+    "Route Tables",
+    "Internet Gateways",
+    "Network ACLs",
+    "Security Groups",
 };
 
 fg_color: []const u8,
@@ -77,6 +85,22 @@ pub fn handleEvent(self: *VpcHomeView, event: Event, ctx: ViewContext) !Action {
                 1 => { // Subnets
                     const v = try SubnetsView.init(ctx.allocator, ctx.io, ctx.profile_set, ctx.regions, ctx.color_support);
                     return .{ .push = .{ .vpc_subnets = v } };
+                },
+                2 => { // Route Tables
+                    const v = try RouteTablesView.init(ctx.allocator, ctx.io, ctx.profile_set, ctx.regions, ctx.color_support);
+                    return .{ .push = .{ .vpc_route_tables = v } };
+                },
+                3 => { // Internet Gateways
+                    const v = try InternetGatewaysView.init(ctx.allocator, ctx.io, ctx.profile_set, ctx.regions, ctx.color_support);
+                    return .{ .push = .{ .vpc_internet_gateways = v } };
+                },
+                4 => { // Network ACLs
+                    const v = try NetworkAclsView.init(ctx.allocator, ctx.io, ctx.profile_set, ctx.regions, ctx.color_support);
+                    return .{ .push = .{ .vpc_network_acls = v } };
+                },
+                5 => { // Security Groups
+                    const v = try SecurityGroupsView.init(ctx.allocator, ctx.io, ctx.profile_set, ctx.regions, ctx.color_support);
+                    return .{ .push = .{ .vpc_security_groups = v } };
                 },
                 else => {},
             },
