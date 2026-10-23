@@ -3,7 +3,7 @@ name: zig-builder
 description: >
   Build or test the Zig project. Use when asked to build, run tests,
   check compilation, or run the project. Pass the specific target if known.
-model: claude-haiku-4-5
+model: claude-haiku-5-5
 tools:
   - Bash
   - Read
