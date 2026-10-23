@@ -58,6 +58,54 @@ pub const DescribeInternetGatewaysResult = describeInternetGatewaysMod.Result;
 pub const InternetGateway = describeInternetGatewaysMod.InternetGateway;
 pub const InternetGatewayAttachment = describeInternetGatewaysMod.Attachment;
 
+const describeNatGatewaysMod = @import("describe/nat_gateways.zig");
+const describeNatGatewaysImpl = describeNatGatewaysMod.describeNatGateways;
+
+pub const DescribeNatGatewaysOptions = describeNatGatewaysMod.Options;
+pub const DescribeNatGatewaysParams = describeNatGatewaysMod.Params;
+pub const DescribeNatGatewaysResult = describeNatGatewaysMod.Result;
+pub const NatGateway = describeNatGatewaysMod.NatGateway;
+
+const describeVpcPeeringConnectionsMod = @import("describe/vpc_peering_connections.zig");
+const describeVpcPeeringConnectionsImpl = describeVpcPeeringConnectionsMod.describeVpcPeeringConnections;
+
+pub const DescribeVpcPeeringConnectionsOptions = describeVpcPeeringConnectionsMod.Options;
+pub const DescribeVpcPeeringConnectionsParams = describeVpcPeeringConnectionsMod.Params;
+pub const DescribeVpcPeeringConnectionsResult = describeVpcPeeringConnectionsMod.Result;
+pub const VpcPeeringConnection = describeVpcPeeringConnectionsMod.VpcPeeringConnection;
+
+const describeTransitGatewayVpcAttachmentsMod = @import("describe/transit_gateway_vpc_attachments.zig");
+const describeTransitGatewayVpcAttachmentsImpl = describeTransitGatewayVpcAttachmentsMod.describeTransitGatewayVpcAttachments;
+
+pub const DescribeTransitGatewayVpcAttachmentsOptions = describeTransitGatewayVpcAttachmentsMod.Options;
+pub const DescribeTransitGatewayVpcAttachmentsParams = describeTransitGatewayVpcAttachmentsMod.Params;
+pub const DescribeTransitGatewayVpcAttachmentsResult = describeTransitGatewayVpcAttachmentsMod.Result;
+pub const TransitGatewayVpcAttachment = describeTransitGatewayVpcAttachmentsMod.TransitGatewayVpcAttachment;
+
+const describeVpcEndpointsMod = @import("describe/vpc_endpoints.zig");
+const describeVpcEndpointsImpl = describeVpcEndpointsMod.describeVpcEndpoints;
+
+pub const DescribeVpcEndpointsOptions = describeVpcEndpointsMod.Options;
+pub const DescribeVpcEndpointsParams = describeVpcEndpointsMod.Params;
+pub const DescribeVpcEndpointsResult = describeVpcEndpointsMod.Result;
+pub const VpcEndpoint = describeVpcEndpointsMod.VpcEndpoint;
+
+const describeVpnGatewaysMod = @import("describe/vpn_gateways.zig");
+const describeVpnGatewaysImpl = describeVpnGatewaysMod.describeVpnGateways;
+
+pub const DescribeVpnGatewaysOptions = describeVpnGatewaysMod.Options;
+pub const DescribeVpnGatewaysParams = describeVpnGatewaysMod.Params;
+pub const DescribeVpnGatewaysResult = describeVpnGatewaysMod.Result;
+pub const VpnGateway = describeVpnGatewaysMod.VpnGateway;
+
+const describeEgressOnlyInternetGatewaysMod = @import("describe/egress_only_internet_gateways.zig");
+const describeEgressOnlyInternetGatewaysImpl = describeEgressOnlyInternetGatewaysMod.describeEgressOnlyInternetGateways;
+
+pub const DescribeEgressOnlyInternetGatewaysOptions = describeEgressOnlyInternetGatewaysMod.Options;
+pub const DescribeEgressOnlyInternetGatewaysParams = describeEgressOnlyInternetGatewaysMod.Params;
+pub const DescribeEgressOnlyInternetGatewaysResult = describeEgressOnlyInternetGatewaysMod.Result;
+pub const EgressOnlyInternetGateway = describeEgressOnlyInternetGatewaysMod.EgressOnlyInternetGateway;
+
 pub const ClientOptions = struct {
     region: []const u8 = "us-east-1",
     io: std.Io,
@@ -122,6 +170,30 @@ pub const Client = struct {
     pub fn describeInternetGateways(self: *Client, options: DescribeInternetGatewaysOptions) !DescribeInternetGatewaysResult {
         return describeInternetGatewaysImpl(self, options);
     }
+    /// Describe NAT gateways. Caller owns the result and must call deinit.
+    pub fn describeNatGateways(self: *Client, options: DescribeNatGatewaysOptions) !DescribeNatGatewaysResult {
+        return describeNatGatewaysImpl(self, options);
+    }
+    /// Describe VPC peering connections. Caller owns the result and must call deinit.
+    pub fn describeVpcPeeringConnections(self: *Client, options: DescribeVpcPeeringConnectionsOptions) !DescribeVpcPeeringConnectionsResult {
+        return describeVpcPeeringConnectionsImpl(self, options);
+    }
+    /// Describe transit gateway VPC attachments. Caller owns the result and must call deinit.
+    pub fn describeTransitGatewayVpcAttachments(self: *Client, options: DescribeTransitGatewayVpcAttachmentsOptions) !DescribeTransitGatewayVpcAttachmentsResult {
+        return describeTransitGatewayVpcAttachmentsImpl(self, options);
+    }
+    /// Describe VPC endpoints. Caller owns the result and must call deinit.
+    pub fn describeVpcEndpoints(self: *Client, options: DescribeVpcEndpointsOptions) !DescribeVpcEndpointsResult {
+        return describeVpcEndpointsImpl(self, options);
+    }
+    /// Describe virtual private gateways. Caller owns the result and must call deinit.
+    pub fn describeVpnGateways(self: *Client, options: DescribeVpnGatewaysOptions) !DescribeVpnGatewaysResult {
+        return describeVpnGatewaysImpl(self, options);
+    }
+    /// Describe egress-only internet gateways. Caller owns the result and must call deinit.
+    pub fn describeEgressOnlyInternetGateways(self: *Client, options: DescribeEgressOnlyInternetGatewaysOptions) !DescribeEgressOnlyInternetGatewaysResult {
+        return describeEgressOnlyInternetGatewaysImpl(self, options);
+    }
 };
 
 // ============================================================================
@@ -165,5 +237,11 @@ test {
     _ = @import("describe/dhcp_options.zig");
     _ = @import("describe/route_tables.zig");
     _ = @import("describe/internet_gateways.zig");
+    _ = @import("describe/nat_gateways.zig");
+    _ = @import("describe/vpc_peering_connections.zig");
+    _ = @import("describe/transit_gateway_vpc_attachments.zig");
+    _ = @import("describe/vpc_endpoints.zig");
+    _ = @import("describe/vpn_gateways.zig");
+    _ = @import("describe/egress_only_internet_gateways.zig");
     _ = @import("request.zig");
 }

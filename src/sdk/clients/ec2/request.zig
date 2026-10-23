@@ -102,3 +102,30 @@ pub fn xmlBool(src: []const u8, tag: []const u8) bool {
     const v = xml.child(src, tag) orelse return false;
     return std.mem.eql(u8, v, "true");
 }
+
+/// Unescaped text of `inner` inside the direct child `outer`, or an empty string.
+pub fn xmlNested(allocator: Allocator, src: []const u8, outer: []const u8, inner: []const u8) ![]u8 {
+    return xmlStr(allocator, xml.child(src, outer) orelse "", inner);
+}
+
+/// Unescaped text of `inner` in the first `<item>` of the set `set_tag`, or an empty string.
+pub fn xmlFirstItemStr(allocator: Allocator, src: []const u8, set_tag: []const u8, inner: []const u8) ![]u8 {
+    const set = xml.child(src, set_tag) orelse return allocator.dupe(u8, "");
+    var it: xml.ChildIterator = .{ .src = set, .name = "item" };
+    const item = it.next() orelse return allocator.dupe(u8, "");
+    return xmlStr(allocator, item, inner);
+}
+
+test "xmlNested and xmlFirstItemStr" {
+    const a = std.testing.allocator;
+    const src = "<status><code>active</code></status><set><item><vpcId>vpc-1</vpcId></item><item><vpcId>vpc-2</vpcId></item></set><empty/>";
+    const code = try xmlNested(a, src, "status", "code");
+    defer a.free(code);
+    try std.testing.expectEqualStrings("active", code);
+    const first = try xmlFirstItemStr(a, src, "set", "vpcId");
+    defer a.free(first);
+    try std.testing.expectEqualStrings("vpc-1", first);
+    const none = try xmlFirstItemStr(a, src, "empty", "vpcId");
+    defer a.free(none);
+    try std.testing.expectEqualStrings("", none);
+}
