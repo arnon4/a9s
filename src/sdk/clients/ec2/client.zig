@@ -106,6 +106,44 @@ pub const DescribeEgressOnlyInternetGatewaysParams = describeEgressOnlyInternetG
 pub const DescribeEgressOnlyInternetGatewaysResult = describeEgressOnlyInternetGatewaysMod.Result;
 pub const EgressOnlyInternetGateway = describeEgressOnlyInternetGatewaysMod.EgressOnlyInternetGateway;
 
+const describeNetworkAclsMod = @import("describe/network_acls.zig");
+const describeNetworkAclsImpl = describeNetworkAclsMod.describeNetworkAcls;
+
+pub const DescribeNetworkAclsOptions = describeNetworkAclsMod.Options;
+pub const DescribeNetworkAclsParams = describeNetworkAclsMod.Params;
+pub const DescribeNetworkAclsResult = describeNetworkAclsMod.Result;
+pub const NetworkAcl = describeNetworkAclsMod.NetworkAcl;
+pub const NetworkAclEntry = describeNetworkAclsMod.Entry;
+pub const NetworkAclAssociation = describeNetworkAclsMod.Association;
+
+const describeSecurityGroupsMod = @import("describe/security_groups.zig");
+const describeSecurityGroupsImpl = describeSecurityGroupsMod.describeSecurityGroups;
+
+pub const DescribeSecurityGroupsOptions = describeSecurityGroupsMod.Options;
+pub const DescribeSecurityGroupsParams = describeSecurityGroupsMod.Params;
+pub const DescribeSecurityGroupsResult = describeSecurityGroupsMod.Result;
+pub const SecurityGroup = describeSecurityGroupsMod.SecurityGroup;
+pub const SecurityGroupRule = describeSecurityGroupsMod.IpPermission;
+pub const SecurityGroupPair = describeSecurityGroupsMod.GroupPair;
+pub const SecurityGroupRange = describeSecurityGroupsMod.IpRange;
+pub const SecurityGroupPrefixList = describeSecurityGroupsMod.PrefixListRef;
+
+const describeSecurityGroupsForVpcMod = @import("describe/security_groups_for_vpc.zig");
+const describeSecurityGroupsForVpcImpl = describeSecurityGroupsForVpcMod.getSecurityGroupsForVpc;
+
+pub const DescribeSecurityGroupsForVpcOptions = describeSecurityGroupsForVpcMod.Options;
+pub const DescribeSecurityGroupsForVpcParams = describeSecurityGroupsForVpcMod.Params;
+pub const DescribeSecurityGroupsForVpcResult = describeSecurityGroupsForVpcMod.Result;
+pub const SecurityGroupForVpc = describeSecurityGroupsForVpcMod.SecurityGroupForVpc;
+
+const describeSecurityGroupReferencesMod = @import("describe/security_group_references.zig");
+const describeSecurityGroupReferencesImpl = describeSecurityGroupReferencesMod.describeSecurityGroupReferences;
+
+pub const DescribeSecurityGroupReferencesOptions = describeSecurityGroupReferencesMod.Options;
+pub const DescribeSecurityGroupReferencesParams = describeSecurityGroupReferencesMod.Params;
+pub const DescribeSecurityGroupReferencesResult = describeSecurityGroupReferencesMod.Result;
+pub const SecurityGroupReference = describeSecurityGroupReferencesMod.SecurityGroupReference;
+
 pub const ClientOptions = struct {
     region: []const u8 = "us-east-1",
     io: std.Io,
@@ -194,6 +232,22 @@ pub const Client = struct {
     pub fn describeEgressOnlyInternetGateways(self: *Client, options: DescribeEgressOnlyInternetGatewaysOptions) !DescribeEgressOnlyInternetGatewaysResult {
         return describeEgressOnlyInternetGatewaysImpl(self, options);
     }
+    /// Describe network ACLs. Caller owns the result and must call deinit.
+    pub fn describeNetworkAcls(self: *Client, options: DescribeNetworkAclsOptions) !DescribeNetworkAclsResult {
+        return describeNetworkAclsImpl(self, options);
+    }
+    /// Describe security groups. Caller owns the result and must call deinit.
+    pub fn describeSecurityGroups(self: *Client, options: DescribeSecurityGroupsOptions) !DescribeSecurityGroupsResult {
+        return describeSecurityGroupsImpl(self, options);
+    }
+    /// Describe security groups that can be associated with interfaces in a VPC. Caller owns the result and must call deinit.
+    pub fn getSecurityGroupsForVpc(self: *Client, options: DescribeSecurityGroupsForVpcOptions) !DescribeSecurityGroupsForVpcResult {
+        return describeSecurityGroupsForVpcImpl(self, options);
+    }
+    /// Describe security group references across peered VPCs. Caller owns the result and must call deinit.
+    pub fn describeSecurityGroupReferences(self: *Client, options: DescribeSecurityGroupReferencesOptions) !DescribeSecurityGroupReferencesResult {
+        return describeSecurityGroupReferencesImpl(self, options);
+    }
 };
 
 // ============================================================================
@@ -243,5 +297,9 @@ test {
     _ = @import("describe/vpc_endpoints.zig");
     _ = @import("describe/vpn_gateways.zig");
     _ = @import("describe/egress_only_internet_gateways.zig");
+    _ = @import("describe/network_acls.zig");
+    _ = @import("describe/security_groups.zig");
+    _ = @import("describe/security_groups_for_vpc.zig");
+    _ = @import("describe/security_group_references.zig");
     _ = @import("request.zig");
 }
