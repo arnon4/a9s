@@ -52,6 +52,8 @@ const VpcsView = @import("views/vpc/vpcs.zig");
 const VpcSortKey = VpcsView.SortKey;
 const SubnetsView = @import("views/vpc/subnets.zig");
 const SubnetSortKey = SubnetsView.SortKey;
+const RouteTablesView = @import("views/vpc/route_tables.zig");
+const RouteTableSortKey = RouteTablesView.SortKey;
 
 /// Top-level application state. Owns the terminal raw mode, view stack, and event loop.
 pub const App = struct {
@@ -214,6 +216,7 @@ pub const App = struct {
                                         .cloudtrail_event_detail => |*v| v.commitFilter(s.text),
                                         .vpc_vpcs => |*v| v.commitFilter(s.text),
                                         .vpc_subnets => |*v| v.commitFilter(s.text),
+                                        .vpc_route_tables => |*v| v.commitFilter(s.text),
                                         else => {},
                                     }
                                     self.updateViewLiveFilter("");
@@ -238,7 +241,7 @@ pub const App = struct {
                                             }
                                             if (c == '/') {
                                                 const searchable = switch (self.currentView().*) {
-                                                    .s3_buckets, .s3_objects, .s3_object_content, .lambda_functions, .lambda_function_content, .logs_log_groups, .logs_log_events, .iam_policy_document, .iam_role_trust_policy, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .iam_user_inline_policy_document, .iam_group_inline_policy_document, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events, .cloudtrail_event_detail, .vpc_vpcs, .vpc_subnets => true,
+                                                    .s3_buckets, .s3_objects, .s3_object_content, .lambda_functions, .lambda_function_content, .logs_log_groups, .logs_log_events, .iam_policy_document, .iam_role_trust_policy, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .iam_user_inline_policy_document, .iam_group_inline_policy_document, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events, .cloudtrail_event_detail, .vpc_vpcs, .vpc_subnets, .vpc_route_tables => true,
                                                     else => false,
                                                 };
                                                 if (searchable) {
@@ -343,6 +346,7 @@ pub const App = struct {
             .cloudtrail_event_detail => |*v| v.setLiveFilter(text),
             .vpc_vpcs => |*v| v.setLiveFilter(text),
             .vpc_subnets => |*v| v.setLiveFilter(text),
+            .vpc_route_tables => |*v| v.setLiveFilter(text),
             else => {},
         }
     }
@@ -591,6 +595,11 @@ pub const App = struct {
                 v.deinit();
                 self.currentView().* = .{ .vpc_subnets = new_v };
             },
+            .vpc_route_tables => |*v| {
+                const new_v = RouteTablesView.init(self.allocator, self.io, &self.profile_set, self.regions.items, self.color_support) catch return;
+                v.deinit();
+                self.currentView().* = .{ .vpc_route_tables = new_v };
+            },
             else => {},
         }
     }
@@ -631,11 +640,16 @@ pub const App = struct {
                 v.deinit();
                 self.currentView().* = .{ .vpc_subnets = new_v };
             },
+            .vpc_route_tables => |*v| {
+                const new_v = RouteTablesView.init(self.allocator, self.io, &self.profile_set, self.regions.items, self.color_support) catch return;
+                v.deinit();
+                self.currentView().* = .{ .vpc_route_tables = new_v };
+            },
             // Detail views are region-independent; no refresh needed.
             .lambda_function, .lambda_function_content, .logs_log_streams, .logs_log_events => {},
             .secretsmanager_secret, .secretsmanager_secret_value, .secretsmanager_resource_policy => {},
             .cloudtrail_events, .cloudtrail_event_detail => {},
-            .vpc_home, .vpc_vpc, .vpc_subnet, .vpc_dhcp_options => {},
+            .vpc_home, .vpc_vpc, .vpc_subnet, .vpc_dhcp_options, .vpc_route_table => {},
             // IAM is global; no region refresh needed.
             .iam_home, .iam_roles, .iam_policies, .iam_role, .iam_role_policies, .iam_role_trust_policy, .iam_policy, .iam_policy_document => {},
             .iam_users, .iam_user, .iam_user_inline_policies, .iam_user_inline_policy_document => {},
@@ -647,7 +661,7 @@ pub const App = struct {
     fn handleFilterCommand(self: *Self, t: []const u8) void {
         const rest = std.mem.trim(u8, t["filter".len..], " ");
         const filterable = switch (self.currentView().*) {
-            .s3_buckets, .s3_objects, .lambda_functions, .logs_log_groups, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events, .vpc_vpcs, .vpc_subnets => true,
+            .s3_buckets, .s3_objects, .lambda_functions, .logs_log_groups, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events, .vpc_vpcs, .vpc_subnets, .vpc_route_tables => true,
             else => false,
         };
         if (!filterable) {
@@ -670,6 +684,7 @@ pub const App = struct {
                 .cloudtrail_events => |*v| v.clearFilterExpr(),
                 .vpc_vpcs => |*v| v.clearFilterExpr(),
                 .vpc_subnets => |*v| v.clearFilterExpr(),
+                .vpc_route_tables => |*v| v.clearFilterExpr(),
                 else => {},
             }
             return;
@@ -693,6 +708,7 @@ pub const App = struct {
             .cloudtrail_events => |*v| v.setFilterExpr(result),
             .vpc_vpcs => |*v| v.setFilterExpr(result),
             .vpc_subnets => |*v| v.setFilterExpr(result),
+            .vpc_route_tables => |*v| v.setFilterExpr(result),
             else => result.deinit(),
         }
     }
@@ -887,7 +903,7 @@ fn parseSortCommand(view: *view_mod.View, text: []const u8) CommandResult {
     if (!is_sort) return .unknown;
 
     const sortable = switch (view.*) {
-        .s3_buckets, .s3_objects, .lambda_functions, .logs_log_groups, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events, .vpc_vpcs, .vpc_subnets => true,
+        .s3_buckets, .s3_objects, .lambda_functions, .logs_log_groups, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events, .vpc_vpcs, .vpc_subnets, .vpc_route_tables => true,
         else => false,
     };
     if (!sortable) return .not_allowed;
@@ -967,6 +983,11 @@ fn parseSortCommand(view: *view_mod.View, text: []const u8) CommandResult {
             const n = parseSortKeys(SubnetSortKey, parseSubnetSortKey, rest, &keys);
             if (n > 0) v.setSort(keys[0..n], dir);
         },
+        .vpc_route_tables => |*v| {
+            var keys: [4]RouteTableSortKey = undefined;
+            const n = parseSortKeys(RouteTableSortKey, parseRouteTableSortKey, rest, &keys);
+            if (n > 0) v.setSort(keys[0..n], dir);
+        },
         else => {},
     }
     return .ok;
@@ -991,6 +1012,17 @@ fn parseSubnetSortKey(tok: []const u8) ?SubnetSortKey {
     if (std.mem.eql(u8, tok, "az")) return .az;
     if (std.mem.eql(u8, tok, "free_ips") or std.mem.eql(u8, tok, "ips")) return .free_ips;
     if (std.mem.eql(u8, tok, "state")) return .state;
+    return null;
+}
+
+fn parseRouteTableSortKey(tok: []const u8) ?RouteTableSortKey {
+    if (std.mem.eql(u8, tok, "name")) return .name;
+    if (std.mem.eql(u8, tok, "id") or std.mem.eql(u8, tok, "route_table_id")) return .route_table_id;
+    if (std.mem.eql(u8, tok, "vpc") or std.mem.eql(u8, tok, "vpc_id")) return .vpc_id;
+    if (std.mem.eql(u8, tok, "main")) return .main;
+    if (std.mem.eql(u8, tok, "assocs")) return .assocs;
+    if (std.mem.eql(u8, tok, "routes")) return .routes;
+    if (std.mem.eql(u8, tok, "region")) return .region;
     return null;
 }
 

@@ -11,6 +11,7 @@ const Ec2 = @import("../../../sdk/clients/ec2/client.zig");
 const props_mod = @import("../../../ui/props.zig");
 const constants = @import("../../../ui/constants.zig");
 const ConfirmView = @import("../../../ui/confirm.zig");
+const RouteTableView = @import("route_table.zig");
 
 const SubnetView = @This();
 pub const name: []const u8 = "Subnet";
@@ -27,6 +28,8 @@ const FetchCtx = struct {
     region: []u8,
     subnet_id: []u8,
     result: ?Ec2.DescribeSubnetsResult = null,
+    /// Route table governing the subnet: explicit association, else the VPC's main table.
+    route_table: ?Ec2.DescribeRouteTablesResult = null,
     err: ?anyerror = null,
     done: std.atomic.Value(bool) = .init(false),
     thread: std.Thread = undefined,
@@ -54,7 +57,33 @@ fn fetchThread(ctx: *FetchCtx) void {
         return;
     };
     ctx.result = result;
-    if (result.subnets.len == 0) ctx.err = error.SubnetNotFound;
+    if (result.subnets.len == 0) {
+        ctx.err = error.SubnetNotFound;
+        return;
+    }
+
+    const explicit = [_]Ec2.Filter{.{ .name = "association.subnet-id", .values = &ids }};
+    if (client.describeRouteTables(.{ .params = .{ .filters = &explicit } })) |r| {
+        if (r.route_tables.len > 0) {
+            ctx.route_table = r;
+            return;
+        }
+        r.deinit();
+    } else |_| {}
+
+    const main_filters = [_]Ec2.Filter{
+        .{ .name = "vpc-id", .values = &.{result.subnets[0].vpc_id} },
+        .{ .name = "association.main", .values = &.{"true"} },
+    };
+    ctx.route_table = client.describeRouteTables(.{ .params = .{ .filters = &main_filters } }) catch null;
+}
+
+/// Route table of this subnet once the fetch has finished; null while loading or when none was found.
+fn routeTable(self: *const SubnetView) ?Ec2.RouteTable {
+    if (!self.ctx.done.load(.acquire)) return null;
+    const r = self.ctx.route_table orelse return null;
+    if (r.route_tables.len == 0) return null;
+    return r.route_tables[0];
 }
 
 // ─── View fields ─────────────────────────────────────────────────────────────
@@ -121,6 +150,7 @@ pub fn deinit(self: *SubnetView) void {
     const alloc = self.ctx.allocator;
     self.ctx.thread.join();
     if (self.ctx.result) |r| r.deinit();
+    if (self.ctx.route_table) |r| r.deinit();
     alloc.free(self.ctx.region);
     alloc.free(self.ctx.subnet_id);
     alloc.destroy(self.ctx);
@@ -129,7 +159,7 @@ pub fn deinit(self: *SubnetView) void {
 
 // ─── Event handling ──────────────────────────────────────────────────────────
 
-pub fn handleEvent(self: *SubnetView, event: Event, _: ViewContext) !Action {
+pub fn handleEvent(self: *SubnetView, event: Event, ctx: ViewContext) !Action {
     switch (event) {
         .key => |k| switch (k) {
             .ctrl_c => return .quit,
@@ -157,6 +187,21 @@ pub fn handleEvent(self: *SubnetView, event: Event, _: ViewContext) !Action {
             .down => self.scroll += 1,
             .up => if (self.scroll > 0) {
                 self.scroll -= 1;
+            },
+            .enter => {
+                const t = self.routeTable() orelse return .none;
+                const v = try RouteTableView.init(
+                    ctx.allocator,
+                    ctx.io,
+                    self.ctx.credentials,
+                    self.ctx.region,
+                    t.route_table_id,
+                    if (t.name.len > 0) t.name else t.route_table_id,
+                    self.fg_color,
+                    self.bg_color,
+                    self.breadcrumb(),
+                );
+                return .{ .push = .{ .vpc_route_table = v } };
             },
             .escape => return .pop,
             else => {},
@@ -240,6 +285,16 @@ pub fn render(self: *SubnetView, writer: *std.Io.Writer, size: Coord) !void {
     props_buf[n] = .{ .label = "IPv4 CIDR", .value = if (subnet) |s| orDash(s.cidr_block) else pending };
     n += 1;
     props_buf[n] = .{ .label = "IPv6 CIDRs", .value = if (subnet) |s| joinCidrs(&text, s.ipv6_cidr_associations) else pending };
+    n += 1;
+    props_buf[n] = .{
+        .label = "Route Table",
+        .value = if (self.routeTable()) |t| text.print("{s}{s}{s}", .{
+            t.route_table_id,
+            if (t.name.len > 0) " " else "",
+            t.name,
+        }) else pending,
+        .highlight = if (self.routeTable() != null) self.bg_color else "",
+    };
     n += 1;
     props_buf[n] = .{ .label = "Availability Zone", .value = if (subnet) |s| orDash(s.availability_zone) else pending };
     n += 1;

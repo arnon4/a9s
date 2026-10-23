@@ -39,6 +39,16 @@ pub const DescribeDhcpOptionsResult = describeDhcpOptionsMod.Result;
 pub const DhcpOptions = describeDhcpOptionsMod.DhcpOptions;
 pub const DhcpConfiguration = describeDhcpOptionsMod.Configuration;
 
+const describeRouteTablesMod = @import("describe/route_tables.zig");
+const describeRouteTablesImpl = describeRouteTablesMod.describeRouteTables;
+
+pub const DescribeRouteTablesOptions = describeRouteTablesMod.Options;
+pub const DescribeRouteTablesParams = describeRouteTablesMod.Params;
+pub const DescribeRouteTablesResult = describeRouteTablesMod.Result;
+pub const RouteTable = describeRouteTablesMod.RouteTable;
+pub const Route = describeRouteTablesMod.Route;
+pub const RouteTableAssociation = describeRouteTablesMod.Association;
+
 pub const ClientOptions = struct {
     region: []const u8 = "us-east-1",
     io: std.Io,
@@ -93,6 +103,11 @@ pub const Client = struct {
     pub fn describeDhcpOptions(self: *Client, options: DescribeDhcpOptionsOptions) !DescribeDhcpOptionsResult {
         return describeDhcpOptionsImpl(self, options);
     }
+
+    /// Describe route tables. Caller owns the result and must call deinit.
+    pub fn describeRouteTables(self: *Client, options: DescribeRouteTablesOptions) !DescribeRouteTablesResult {
+        return describeRouteTablesImpl(self, options);
+    }
 };
 
 // ============================================================================
@@ -134,5 +149,6 @@ test {
     _ = @import("describe/vpc_attribute.zig");
     _ = @import("describe/subnets.zig");
     _ = @import("describe/dhcp_options.zig");
+    _ = @import("describe/route_tables.zig");
     _ = @import("request.zig");
 }

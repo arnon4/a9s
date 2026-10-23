@@ -55,6 +55,8 @@ const VpcView = @import("../app/views/vpc/vpc.zig");
 const SubnetsView = @import("../app/views/vpc/subnets.zig");
 const SubnetView = @import("../app/views/vpc/subnet.zig");
 const DhcpOptionsView = @import("../app/views/vpc/dhcp_options.zig");
+const RouteTablesView = @import("../app/views/vpc/route_tables.zig");
+const RouteTableView = @import("../app/views/vpc/route_table.zig");
 
 const Event = @import("../event.zig").Event;
 
@@ -124,6 +126,8 @@ pub const View = union(enum) {
     vpc_subnets: SubnetsView,
     vpc_subnet: SubnetView,
     vpc_dhcp_options: DhcpOptionsView,
+    vpc_route_tables: RouteTablesView,
+    vpc_route_table: RouteTableView,
 
     const Self = @This();
 
