@@ -13,6 +13,7 @@ const constants = @import("../../../ui/constants.zig");
 const ConfirmView = @import("../../../ui/confirm.zig");
 const SubnetView = @import("subnet.zig");
 const DhcpOptionsView = @import("dhcp_options.zig");
+const NetworkMapView = @import("network_map.zig");
 
 const VpcView = @This();
 pub const name: []const u8 = "VPC";
@@ -171,6 +172,20 @@ pub fn handleEvent(self: *VpcView, event: Event, ctx: ViewContext) !Action {
             .ctrl_c => return .quit,
             .char => |c| switch (c) {
                 'q' => return .{ .push = .{ .confirm = ConfirmView.init(self.fg_color, self.bg_color) } },
+                'm' => {
+                    const v = try NetworkMapView.init(
+                        ctx.allocator,
+                        ctx.io,
+                        self.ctx.credentials,
+                        self.ctx.region,
+                        self.ctx.vpc_id,
+                        self.display_name,
+                        self.fg_color,
+                        self.bg_color,
+                        self.breadcrumb(),
+                    );
+                    return .{ .push = .{ .vpc_network_map = v } };
+                },
                 'j' => if (!self.moveSel(1)) {
                     self.scroll += 1;
                 },
@@ -423,7 +438,8 @@ pub fn render(self: *VpcView, writer: *std.Io.Writer, size: Coord) !void {
     }
 
     const total = n;
-    const data_rows = if (h >= 1) h - 1 else 0;
+    const props_h = if (h >= 2) h - 1 else h;
+    const data_rows = if (props_h >= 1) props_h - 1 else 0;
     self.view_rows = data_rows;
     self.sel_row = if (dhcp_off == 1 and self.sel == 0) dhcp_row else subnets_start + self.sel - dhcp_off;
     if (self.follow_sel and data_rows > 0) {
@@ -435,5 +451,16 @@ pub fn render(self: *VpcView, writer: *std.Io.Writer, size: Coord) !void {
         self.scroll = if (total > data_rows) total - data_rows else 0;
     }
 
-    try props_mod.render(writer, props_buf[0..n], self.scroll, w, h, self.fg_color);
+    try props_mod.render(writer, props_buf[0..n], self.scroll, w, props_h, self.fg_color);
+
+    if (h >= 2) {
+        try writer.writeAll("\r\n");
+        const hint = " [ m ] Network Map ";
+        try writer.writeAll(self.fg_color);
+        try writer.writeAll(hint);
+        try writer.writeAll(terminal.RESET);
+        if (w > hint.len) {
+            for (0..w - hint.len) |_| try writer.writeByte(' ');
+        }
+    }
 }

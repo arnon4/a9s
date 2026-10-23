@@ -21,7 +21,13 @@ test {
     _ = @import("app/views/vpc/subnets.zig");
     _ = @import("app/views/vpc/subnet.zig");
     _ = @import("app/views/vpc/dhcp_options.zig");
-    _ = @import("app/views/vpc/dhcp_options.zig");
+    _ = @import("app/views/vpc/route_tables.zig");
+    _ = @import("app/views/vpc/route_table.zig");
+    _ = @import("app/views/vpc/route_table_routes.zig");
+    _ = @import("app/views/vpc/internet_gateways.zig");
+    _ = @import("app/views/vpc/internet_gateway.zig");
+    _ = @import("app/views/vpc/network_map.zig");
+    _ = @import("app/views/vpc/network_map_graph.zig");
     _ = @import("app/views/logs/log_groups.zig");
 }
 

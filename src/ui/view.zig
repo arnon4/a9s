@@ -60,6 +60,7 @@ const RouteTableView = @import("../app/views/vpc/route_table.zig");
 const InternetGatewaysView = @import("../app/views/vpc/internet_gateways.zig");
 const InternetGatewayView = @import("../app/views/vpc/internet_gateway.zig");
 const RouteTableRoutesView = @import("../app/views/vpc/route_table_routes.zig");
+const NetworkMapView = @import("../app/views/vpc/network_map.zig");
 
 const Event = @import("../event.zig").Event;
 
@@ -134,6 +135,7 @@ pub const View = union(enum) {
     vpc_internet_gateways: InternetGatewaysView,
     vpc_internet_gateway: InternetGatewayView,
     vpc_route_table_routes: RouteTableRoutesView,
+    vpc_network_map: NetworkMapView,
 
     const Self = @This();
 
