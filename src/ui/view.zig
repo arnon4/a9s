@@ -51,6 +51,9 @@ const CloudTrailEventsView = @import("../app/views/cloudtrail/events.zig");
 const CloudTrailEventDetailView = @import("../app/views/cloudtrail/event_detail.zig");
 const VpcsView = @import("../app/views/vpc/vpcs.zig");
 const VpcView = @import("../app/views/vpc/vpc.zig");
+const SubnetsView = @import("../app/views/vpc/subnets.zig");
+const SubnetView = @import("../app/views/vpc/subnet.zig");
+const DhcpOptionsView = @import("../app/views/vpc/dhcp_options.zig");
 
 const Event = @import("../event.zig").Event;
 
@@ -116,6 +119,9 @@ pub const View = union(enum) {
     cloudtrail_event_detail: CloudTrailEventDetailView,
     vpc_vpcs: VpcsView,
     vpc_vpc: VpcView,
+    vpc_subnets: SubnetsView,
+    vpc_subnet: SubnetView,
+    vpc_dhcp_options: DhcpOptionsView,
 
     const Self = @This();
 

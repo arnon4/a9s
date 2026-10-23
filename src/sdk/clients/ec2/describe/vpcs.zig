@@ -84,7 +84,7 @@ pub const Result = struct {
     }
 };
 
-fn freeTags(a: Allocator, tags: []Tag) void {
+pub fn freeTags(a: Allocator, tags: []Tag) void {
     for (tags) |t| {
         a.free(t.key);
         a.free(t.value);
@@ -92,7 +92,7 @@ fn freeTags(a: Allocator, tags: []Tag) void {
     a.free(tags);
 }
 
-fn freeAssociations(a: Allocator, items: []CidrAssociation) void {
+pub fn freeAssociations(a: Allocator, items: []CidrAssociation) void {
     for (items) |c| {
         a.free(c.association_id);
         a.free(c.cidr_block);
@@ -216,7 +216,7 @@ fn parseVpc(allocator: Allocator, src: []const u8) !Vpc {
     };
 }
 
-fn parseTags(allocator: Allocator, src: []const u8) ![]Tag {
+pub fn parseTags(allocator: Allocator, src: []const u8) ![]Tag {
     var tags: std.ArrayList(Tag) = .empty;
     errdefer {
         for (tags.items) |t| {
@@ -238,7 +238,7 @@ fn parseTags(allocator: Allocator, src: []const u8) ![]Tag {
     return tags.toOwnedSlice(allocator);
 }
 
-fn parseAssociations(
+pub fn parseAssociations(
     allocator: Allocator,
     src: []const u8,
     set_tag: []const u8,

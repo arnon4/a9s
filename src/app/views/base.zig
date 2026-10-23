@@ -14,6 +14,7 @@ const IamHomeView = @import("iam/iam_home.zig");
 const SecretsView = @import("secretsmanager/secrets.zig");
 const CloudTrailTrailsView = @import("cloudtrail/trails.zig");
 const VpcsView = @import("vpc/vpcs.zig");
+const SubnetsView = @import("vpc/subnets.zig");
 const ConfirmView = @import("../../ui/confirm.zig");
 
 const BaseView = @This();
@@ -42,6 +43,7 @@ pub fn init(environ_map: *const std.process.Environ.Map) BaseView {
                 "Secrets Manager",
                 "CloudTrail",
                 "VPC",
+                "Subnets",
             },
             .fg_color = fg_color,
             .bg_color = bg_color,
@@ -111,6 +113,10 @@ pub fn handleEvent(self: *BaseView, event: Event, ctx: ViewContext) !Action {
                 6 => blk: {
                     const v = try VpcsView.init(ctx.allocator, ctx.io, ctx.profile_set, ctx.regions, ctx.color_support);
                     break :blk .{ .push = .{ .vpc_vpcs = v } };
+                },
+                7 => blk: {
+                    const v = try SubnetsView.init(ctx.allocator, ctx.io, ctx.profile_set, ctx.regions, ctx.color_support);
+                    break :blk .{ .push = .{ .vpc_subnets = v } };
                 },
                 else => .none,
             },

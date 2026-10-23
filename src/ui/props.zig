@@ -5,6 +5,8 @@ const constants = @import("constants.zig");
 pub const Prop = struct {
     label: []const u8,
     value: []const u8,
+    /// ANSI background sequence; when set the value cell is drawn highlighted.
+    highlight: []const u8 = "",
 };
 
 // Count terminal columns for a UTF-8 string (each codepoint = 1 column).
@@ -69,12 +71,18 @@ pub fn render(
             try writer.writeAll(constants.VERTICAL);
             try writer.writeAll(terminal.RESET);
             const val_cw = if (val_w >= 2) val_w - 2 else 0;
+            const highlighted = items[idx].highlight.len > 0;
+            if (highlighted) {
+                try writer.writeAll(items[idx].highlight);
+                try writer.writeAll(terminal.FG_BLACK);
+            }
             try writer.writeByte(' ');
             const vend = utf8FitBytes(items[idx].value, val_cw);
             const vshown = items[idx].value[0..vend];
             try writer.writeAll(vshown);
             for (utf8Cols(vshown)..val_cw) |_| try writer.writeByte(' ');
             try writer.writeByte(' ');
+            if (highlighted) try writer.writeAll(terminal.RESET);
         } else {
             for (0..LABEL_W) |_| try writer.writeByte(' ');
             try writer.writeAll(fg_color);
