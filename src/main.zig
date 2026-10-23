@@ -17,6 +17,10 @@ test {
     _ = @import("sdk/clients/ec2/client.zig");
     _ = @import("app/views/vpc/vpcs.zig");
     _ = @import("app/views/vpc/vpc.zig");
+    _ = @import("app/views/vpc/subnets.zig");
+    _ = @import("app/views/vpc/subnet.zig");
+    _ = @import("app/views/vpc/dhcp_options.zig");
+    _ = @import("app/views/vpc/dhcp_options.zig");
     _ = @import("app/views/logs/log_groups.zig");
 }
 

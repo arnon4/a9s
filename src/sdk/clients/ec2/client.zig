@@ -22,6 +22,23 @@ pub const DescribeVpcAttributeParams = describeVpcAttributeMod.Params;
 pub const DescribeVpcAttributeResult = describeVpcAttributeMod.Result;
 pub const VpcAttribute = describeVpcAttributeMod.Attribute;
 
+const describeSubnetsMod = @import("describe/subnets.zig");
+const describeSubnetsImpl = describeSubnetsMod.describeSubnets;
+
+pub const DescribeSubnetsOptions = describeSubnetsMod.Options;
+pub const DescribeSubnetsParams = describeSubnetsMod.Params;
+pub const DescribeSubnetsResult = describeSubnetsMod.Result;
+pub const Subnet = describeSubnetsMod.Subnet;
+
+const describeDhcpOptionsMod = @import("describe/dhcp_options.zig");
+const describeDhcpOptionsImpl = describeDhcpOptionsMod.describeDhcpOptions;
+
+pub const DescribeDhcpOptionsOptions = describeDhcpOptionsMod.Options;
+pub const DescribeDhcpOptionsParams = describeDhcpOptionsMod.Params;
+pub const DescribeDhcpOptionsResult = describeDhcpOptionsMod.Result;
+pub const DhcpOptions = describeDhcpOptionsMod.DhcpOptions;
+pub const DhcpConfiguration = describeDhcpOptionsMod.Configuration;
+
 pub const ClientOptions = struct {
     region: []const u8 = "us-east-1",
     io: std.Io,
@@ -66,6 +83,16 @@ pub const Client = struct {
     pub fn describeVpcAttribute(self: *Client, options: DescribeVpcAttributeOptions) !DescribeVpcAttributeResult {
         return describeVpcAttributeImpl(self, options);
     }
+
+    /// Describe subnets. Caller owns the result and must call deinit.
+    pub fn describeSubnets(self: *Client, options: DescribeSubnetsOptions) !DescribeSubnetsResult {
+        return describeSubnetsImpl(self, options);
+    }
+
+    /// Describe DHCP options sets. Caller owns the result and must call deinit.
+    pub fn describeDhcpOptions(self: *Client, options: DescribeDhcpOptionsOptions) !DescribeDhcpOptionsResult {
+        return describeDhcpOptionsImpl(self, options);
+    }
 };
 
 // ============================================================================
@@ -105,5 +132,7 @@ test "Client init custom endpoint" {
 test {
     _ = @import("describe/vpcs.zig");
     _ = @import("describe/vpc_attribute.zig");
+    _ = @import("describe/subnets.zig");
+    _ = @import("describe/dhcp_options.zig");
     _ = @import("request.zig");
 }
