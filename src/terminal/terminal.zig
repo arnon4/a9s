@@ -205,7 +205,10 @@ pub fn enableRawMode(io: std.Io, stdin: std.Io.File, stdout: std.Io.File) !if (i
         _ = try get_mode.operate(io, stdin);
         const original_mode = get_mode.Data;
 
-        var set_stdin = windows.CONSOLE.USER_IO.SET_MODE(original_mode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_WINDOW_INPUT | ENABLE_EXTENDED_FLAGS));
+        // ENABLE_WINDOW_INPUT must stay set: without it newer ConPTY hosts (Terminal Preview)
+        // never queue WINDOW_BUFFER_SIZE_EVENT records, so resizes are silently lost.
+        const raw_mode = (original_mode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_EXTENDED_FLAGS)) | ENABLE_WINDOW_INPUT;
+        var set_stdin = windows.CONSOLE.USER_IO.SET_MODE(raw_mode);
         _ = try set_stdin.operate(io, stdin);
 
         var get_out = windows.CONSOLE.USER_IO.GET_MODE;

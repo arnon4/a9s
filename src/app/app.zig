@@ -165,7 +165,11 @@ pub const App = struct {
             switch (event) {
                 .resize => |size| {
                     std.log.debug("event: resize x={d} y={d}", .{ size.x, size.y });
-                    self.size = size;
+                    // The event's size is the screen *buffer*, which can differ from the
+                    // visible window; re-query the window from stdout, keep the event as fallback.
+                    const queried = getTerminalSize(self.io, std.Io.File.stdout()) catch size;
+                    self.size = if (queried.x > 0 and queried.y > 0) queried else size;
+                    try self.writer.writeAll(terminal.ERASE_SCREEN);
                 },
                 else => {
                     switch (event) {
