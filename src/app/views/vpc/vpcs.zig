@@ -381,7 +381,7 @@ pub fn init(
 }
 
 pub fn breadcrumb(_: *VpcsView) []const u8 {
-    return "VPCs";
+    return "VPC " ++ constants.SEP_ARROW ++ " VPCs";
 }
 
 pub fn deinit(self: *VpcsView) void {
