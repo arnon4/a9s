@@ -28,6 +28,14 @@ test {
     _ = @import("app/views/vpc/internet_gateway.zig");
     _ = @import("app/views/vpc/network_map.zig");
     _ = @import("app/views/vpc/network_map_graph.zig");
+    _ = @import("app/views/vpc/network_map_nacl.zig");
+    _ = @import("app/views/vpc/network_acls.zig");
+    _ = @import("app/views/vpc/network_acl.zig");
+    _ = @import("app/views/vpc/network_acl_rules.zig");
+    _ = @import("app/views/vpc/security_groups.zig");
+    _ = @import("app/views/vpc/security_group.zig");
+    _ = @import("app/views/vpc/security_group_rules.zig");
+    _ = @import("ui/static_table.zig");
     _ = @import("app/views/logs/log_groups.zig");
 }
 

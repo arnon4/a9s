@@ -56,6 +56,13 @@ const RouteTablesView = @import("views/vpc/route_tables.zig");
 const RouteTableSortKey = RouteTablesView.SortKey;
 const InternetGatewaysView = @import("views/vpc/internet_gateways.zig");
 const InternetGatewaySortKey = InternetGatewaysView.SortKey;
+const NetworkAclsView = @import("views/vpc/network_acls.zig");
+const NetworkAclSortKey = NetworkAclsView.SortKey;
+const SecurityGroupsView = @import("views/vpc/security_groups.zig");
+const SecurityGroupSortKey = SecurityGroupsView.SortKey;
+const RouteTableRoutesView = @import("views/vpc/route_table_routes.zig");
+const NetworkAclRulesView = @import("views/vpc/network_acl_rules.zig");
+const SecurityGroupRulesView = @import("views/vpc/security_group_rules.zig");
 
 /// Top-level application state. Owns the terminal raw mode, view stack, and event loop.
 pub const App = struct {
@@ -220,6 +227,11 @@ pub const App = struct {
                                         .vpc_subnets => |*v| v.commitFilter(s.text),
                                         .vpc_route_tables => |*v| v.commitFilter(s.text),
                                         .vpc_internet_gateways => |*v| v.commitFilter(s.text),
+                                        .vpc_network_acls => |*v| v.commitFilter(s.text),
+                                        .vpc_security_groups => |*v| v.commitFilter(s.text),
+                                        .vpc_route_table_routes => |*v| v.commitFilter(s.text),
+                                        .vpc_network_acl_rules => |*v| v.commitFilter(s.text),
+                                        .vpc_security_group_rules => |*v| v.commitFilter(s.text),
                                         else => {},
                                     }
                                     self.updateViewLiveFilter("");
@@ -244,7 +256,7 @@ pub const App = struct {
                                             }
                                             if (c == '/') {
                                                 const searchable = switch (self.currentView().*) {
-                                                    .s3_buckets, .s3_objects, .s3_object_content, .lambda_functions, .lambda_function_content, .logs_log_groups, .logs_log_events, .iam_policy_document, .iam_role_trust_policy, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .iam_user_inline_policy_document, .iam_group_inline_policy_document, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events, .cloudtrail_event_detail, .vpc_vpcs, .vpc_subnets, .vpc_route_tables, .vpc_internet_gateways => true,
+                                                    .s3_buckets, .s3_objects, .s3_object_content, .lambda_functions, .lambda_function_content, .logs_log_groups, .logs_log_events, .iam_policy_document, .iam_role_trust_policy, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .iam_user_inline_policy_document, .iam_group_inline_policy_document, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events, .cloudtrail_event_detail, .vpc_vpcs, .vpc_subnets, .vpc_route_tables, .vpc_internet_gateways, .vpc_network_acls, .vpc_security_groups, .vpc_route_table_routes, .vpc_network_acl_rules, .vpc_security_group_rules => true,
                                                     else => false,
                                                 };
                                                 if (searchable) {
@@ -351,6 +363,11 @@ pub const App = struct {
             .vpc_subnets => |*v| v.setLiveFilter(text),
             .vpc_route_tables => |*v| v.setLiveFilter(text),
             .vpc_internet_gateways => |*v| v.setLiveFilter(text),
+            .vpc_network_acls => |*v| v.setLiveFilter(text),
+            .vpc_security_groups => |*v| v.setLiveFilter(text),
+            .vpc_route_table_routes => |*v| v.setLiveFilter(text),
+            .vpc_network_acl_rules => |*v| v.setLiveFilter(text),
+            .vpc_security_group_rules => |*v| v.setLiveFilter(text),
             else => {},
         }
     }
@@ -609,6 +626,16 @@ pub const App = struct {
                 v.deinit();
                 self.currentView().* = .{ .vpc_internet_gateways = new_v };
             },
+            .vpc_network_acls => |*v| {
+                const new_v = NetworkAclsView.init(self.allocator, self.io, &self.profile_set, self.regions.items, self.color_support) catch return;
+                v.deinit();
+                self.currentView().* = .{ .vpc_network_acls = new_v };
+            },
+            .vpc_security_groups => |*v| {
+                const new_v = SecurityGroupsView.init(self.allocator, self.io, &self.profile_set, self.regions.items, self.color_support) catch return;
+                v.deinit();
+                self.currentView().* = .{ .vpc_security_groups = new_v };
+            },
             else => {},
         }
     }
@@ -659,11 +686,21 @@ pub const App = struct {
                 v.deinit();
                 self.currentView().* = .{ .vpc_internet_gateways = new_v };
             },
+            .vpc_network_acls => |*v| {
+                const new_v = NetworkAclsView.init(self.allocator, self.io, &self.profile_set, self.regions.items, self.color_support) catch return;
+                v.deinit();
+                self.currentView().* = .{ .vpc_network_acls = new_v };
+            },
+            .vpc_security_groups => |*v| {
+                const new_v = SecurityGroupsView.init(self.allocator, self.io, &self.profile_set, self.regions.items, self.color_support) catch return;
+                v.deinit();
+                self.currentView().* = .{ .vpc_security_groups = new_v };
+            },
             // Detail views are region-independent; no refresh needed.
             .lambda_function, .lambda_function_content, .logs_log_streams, .logs_log_events => {},
             .secretsmanager_secret, .secretsmanager_secret_value, .secretsmanager_resource_policy => {},
             .cloudtrail_events, .cloudtrail_event_detail => {},
-            .vpc_home, .vpc_vpc, .vpc_subnet, .vpc_dhcp_options, .vpc_route_table, .vpc_internet_gateway, .vpc_route_table_routes, .vpc_network_map => {},
+            .vpc_home, .vpc_vpc, .vpc_subnet, .vpc_dhcp_options, .vpc_route_table, .vpc_internet_gateway, .vpc_route_table_routes, .vpc_network_map, .vpc_network_acl, .vpc_network_acl_rules, .vpc_security_group, .vpc_security_group_rules => {},
             // IAM is global; no region refresh needed.
             .iam_home, .iam_roles, .iam_policies, .iam_role, .iam_role_policies, .iam_role_trust_policy, .iam_policy, .iam_policy_document => {},
             .iam_users, .iam_user, .iam_user_inline_policies, .iam_user_inline_policy_document => {},
@@ -675,7 +712,7 @@ pub const App = struct {
     fn handleFilterCommand(self: *Self, t: []const u8) void {
         const rest = std.mem.trim(u8, t["filter".len..], " ");
         const filterable = switch (self.currentView().*) {
-            .s3_buckets, .s3_objects, .lambda_functions, .logs_log_groups, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events, .vpc_vpcs, .vpc_subnets, .vpc_route_tables, .vpc_internet_gateways => true,
+            .s3_buckets, .s3_objects, .lambda_functions, .logs_log_groups, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events, .vpc_vpcs, .vpc_subnets, .vpc_route_tables, .vpc_internet_gateways, .vpc_network_acls, .vpc_security_groups, .vpc_route_table_routes, .vpc_network_acl_rules, .vpc_security_group_rules => true,
             else => false,
         };
         if (!filterable) {
@@ -700,6 +737,11 @@ pub const App = struct {
                 .vpc_subnets => |*v| v.clearFilterExpr(),
                 .vpc_route_tables => |*v| v.clearFilterExpr(),
                 .vpc_internet_gateways => |*v| v.clearFilterExpr(),
+                .vpc_network_acls => |*v| v.clearFilterExpr(),
+                .vpc_security_groups => |*v| v.clearFilterExpr(),
+                .vpc_route_table_routes => |*v| v.clearFilterExpr(),
+                .vpc_network_acl_rules => |*v| v.clearFilterExpr(),
+                .vpc_security_group_rules => |*v| v.clearFilterExpr(),
                 else => {},
             }
             return;
@@ -725,6 +767,11 @@ pub const App = struct {
             .vpc_subnets => |*v| v.setFilterExpr(result),
             .vpc_route_tables => |*v| v.setFilterExpr(result),
             .vpc_internet_gateways => |*v| v.setFilterExpr(result),
+            .vpc_network_acls => |*v| v.setFilterExpr(result),
+            .vpc_security_groups => |*v| v.setFilterExpr(result),
+            .vpc_route_table_routes => |*v| v.setFilterExpr(result),
+            .vpc_network_acl_rules => |*v| v.setFilterExpr(result),
+            .vpc_security_group_rules => |*v| v.setFilterExpr(result),
             else => result.deinit(),
         }
     }
@@ -919,7 +966,7 @@ fn parseSortCommand(view: *view_mod.View, text: []const u8) CommandResult {
     if (!is_sort) return .unknown;
 
     const sortable = switch (view.*) {
-        .s3_buckets, .s3_objects, .lambda_functions, .logs_log_groups, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events, .vpc_vpcs, .vpc_subnets, .vpc_route_tables, .vpc_internet_gateways => true,
+        .s3_buckets, .s3_objects, .lambda_functions, .logs_log_groups, .iam_roles, .iam_policies, .iam_users, .iam_groups, .iam_identity_providers, .secretsmanager_secrets, .cloudtrail_trails, .cloudtrail_events, .vpc_vpcs, .vpc_subnets, .vpc_route_tables, .vpc_internet_gateways, .vpc_network_acls, .vpc_security_groups, .vpc_route_table_routes, .vpc_network_acl_rules, .vpc_security_group_rules => true,
         else => false,
     };
     if (!sortable) return .not_allowed;
@@ -1009,6 +1056,31 @@ fn parseSortCommand(view: *view_mod.View, text: []const u8) CommandResult {
             const n = parseSortKeys(InternetGatewaySortKey, parseInternetGatewaySortKey, rest, &keys);
             if (n > 0) v.setSort(keys[0..n], dir);
         },
+        .vpc_network_acls => |*v| {
+            var keys: [4]NetworkAclSortKey = undefined;
+            const n = parseSortKeys(NetworkAclSortKey, parseNetworkAclSortKey, rest, &keys);
+            if (n > 0) v.setSort(keys[0..n], dir);
+        },
+        .vpc_security_groups => |*v| {
+            var keys: [4]SecurityGroupSortKey = undefined;
+            const n = parseSortKeys(SecurityGroupSortKey, parseSecurityGroupSortKey, rest, &keys);
+            if (n > 0) v.setSort(keys[0..n], dir);
+        },
+        .vpc_route_table_routes => |*v| {
+            var keys: [4]usize = undefined;
+            const n = parseSortKeys(usize, RouteTableRoutesView.parseSortKey, rest, &keys);
+            if (n > 0) v.setSort(keys[0..n], dir);
+        },
+        .vpc_network_acl_rules => |*v| {
+            var keys: [4]usize = undefined;
+            const n = parseSortKeys(usize, NetworkAclRulesView.parseSortKey, rest, &keys);
+            if (n > 0) v.setSort(keys[0..n], dir);
+        },
+        .vpc_security_group_rules => |*v| {
+            var keys: [4]usize = undefined;
+            const n = parseSortKeys(usize, SecurityGroupRulesView.parseSortKey, rest, &keys);
+            if (n > 0) v.setSort(keys[0..n], dir);
+        },
         else => {},
     }
     return .ok;
@@ -1052,6 +1124,28 @@ fn parseInternetGatewaySortKey(tok: []const u8) ?InternetGatewaySortKey {
     if (std.mem.eql(u8, tok, "id") or std.mem.eql(u8, tok, "igw_id")) return .igw_id;
     if (std.mem.eql(u8, tok, "vpc") or std.mem.eql(u8, tok, "vpc_id")) return .vpc_id;
     if (std.mem.eql(u8, tok, "state")) return .state;
+    if (std.mem.eql(u8, tok, "region")) return .region;
+    return null;
+}
+
+fn parseNetworkAclSortKey(tok: []const u8) ?NetworkAclSortKey {
+    if (std.mem.eql(u8, tok, "name")) return .name;
+    if (std.mem.eql(u8, tok, "id") or std.mem.eql(u8, tok, "acl_id")) return .acl_id;
+    if (std.mem.eql(u8, tok, "vpc") or std.mem.eql(u8, tok, "vpc_id")) return .vpc_id;
+    if (std.mem.eql(u8, tok, "default")) return .dflt;
+    if (std.mem.eql(u8, tok, "subnets")) return .subnets;
+    if (std.mem.eql(u8, tok, "rules")) return .rules;
+    if (std.mem.eql(u8, tok, "region")) return .region;
+    return null;
+}
+
+fn parseSecurityGroupSortKey(tok: []const u8) ?SecurityGroupSortKey {
+    if (std.mem.eql(u8, tok, "name")) return .name;
+    if (std.mem.eql(u8, tok, "id") or std.mem.eql(u8, tok, "sg_id")) return .sg_id;
+    if (std.mem.eql(u8, tok, "group") or std.mem.eql(u8, tok, "group_name")) return .group_name;
+    if (std.mem.eql(u8, tok, "vpc") or std.mem.eql(u8, tok, "vpc_id")) return .vpc_id;
+    if (std.mem.eql(u8, tok, "inbound")) return .inbound;
+    if (std.mem.eql(u8, tok, "outbound")) return .outbound;
     if (std.mem.eql(u8, tok, "region")) return .region;
     return null;
 }

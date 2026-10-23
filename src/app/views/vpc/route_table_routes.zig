@@ -9,6 +9,8 @@ const Coord = terminal.Coord;
 const Ec2 = @import("../../../sdk/clients/ec2/client.zig");
 const constants = @import("../../../ui/constants.zig");
 const ConfirmView = @import("../../../ui/confirm.zig");
+const table = @import("../../../ui/static_table.zig");
+const filter_mod = @import("../../../commands/filter.zig");
 const InternetGatewayView = @import("internet_gateway.zig");
 
 const RoutesView = @This();
@@ -19,39 +21,16 @@ const igws_breadcrumb = "VPC " ++ constants.SEP_ARROW ++ " Internet Gateways";
 
 const propagation_origin = "EnableVgwRoutePropagation";
 
-const Mode = enum {
-    wide, //   >=110: Destination | Target | Status | Propagated | Route Origin
-    medium, //   >=80: Destination | Target | Status
-    narrow, //   <80: Destination | Target
+const spec: table.Spec = .{
+    .flex = 0,
+    .columns = &.{
+        .{ .title = "Destination", .key = "destination", .width = 0 },
+        .{ .title = "Target", .key = "target", .width = 30 },
+        .{ .title = "Status", .key = "status", .width = 11, .min_term_width = 80 },
+        .{ .title = "Propagated", .key = "propagated", .width = 12, .min_term_width = 110 },
+        .{ .title = "Route Origin", .key = "origin", .width = 28, .min_term_width = 110 },
+    },
 };
-
-const Column = enum { target, status, propagated, origin };
-
-fn columnsFor(mode: Mode) []const Column {
-    return switch (mode) {
-        .wide => &.{ .target, .status, .propagated, .origin },
-        .medium => &.{ .target, .status },
-        .narrow => &.{.target},
-    };
-}
-
-fn columnWidth(col: Column) usize {
-    return switch (col) {
-        .target => 30,
-        .status => 11,
-        .propagated => 12,
-        .origin => 28,
-    };
-}
-
-fn columnTitle(col: Column) []const u8 {
-    return switch (col) {
-        .target => "Target",
-        .status => "Status",
-        .propagated => "Propagated",
-        .origin => "Route Origin",
-    };
-}
 
 // ─── Local item ──────────────────────────────────────────────────────────────
 
@@ -59,7 +38,6 @@ const RouteItem = struct {
     destination: []u8,
     target: []u8,
     status: []u8,
-    propagated: []const u8,
     origin: []u8,
     /// Name tag of the targeted internet gateway; empty when not an internet gateway or unnamed.
     igw_name: []u8,
@@ -76,15 +54,14 @@ const RouteItem = struct {
         return std.mem.startsWith(u8, self.target, "igw-");
     }
 
-    fn column(self: RouteItem, col: Column) []const u8 {
-        return switch (col) {
-            .target => if (self.target.len > 0) self.target else "-",
-            .status => if (self.status.len > 0) self.status else "-",
-            .propagated => self.propagated,
-            .origin => if (self.origin.len > 0) self.origin else "-",
-        };
+    fn propagated(self: RouteItem) []const u8 {
+        return if (std.mem.eql(u8, self.origin, propagation_origin)) "Yes" else "No";
     }
 };
+
+fn dash(s: []const u8) []const u8 {
+    return if (s.len > 0) s else "-";
+}
 
 fn igwNameFor(igws: ?Ec2.DescribeInternetGatewaysResult, id: []const u8) []const u8 {
     const r = igws orelse return "";
@@ -110,7 +87,6 @@ fn routeToItem(a: std.mem.Allocator, r: Ec2.Route, igws: ?Ec2.DescribeInternetGa
         .destination = destination,
         .target = target,
         .status = status,
-        .propagated = if (std.mem.eql(u8, r.origin, propagation_origin)) "Yes" else "No",
         .origin = origin,
         .igw_name = igw_name,
     };
@@ -121,9 +97,9 @@ fn routeToItem(a: std.mem.Allocator, r: Ec2.Route, igws: ?Ec2.DescribeInternetGa
 fg_color: []const u8,
 bg_color: []const u8,
 items: []RouteItem,
-selected: usize = 0,
-scroll_offset: usize = 0,
-pending_g: bool = false,
+/// Row-major view of `items` for the table; points into the items' strings.
+cells: [][]const u8,
+state: table.State,
 alloc: std.mem.Allocator,
 credentials: Credentials,
 region: []u8,
@@ -154,6 +130,17 @@ pub fn init(
         built += 1;
     }
 
+    const cells = try allocator.alloc([]const u8, items.len * spec.columns.len);
+    errdefer allocator.free(cells);
+    for (items, 0..) |it, i| {
+        const row = cells[i * spec.columns.len ..][0..spec.columns.len];
+        row[0] = dash(it.destination);
+        row[1] = dash(it.target);
+        row[2] = dash(it.status);
+        row[3] = it.propagated();
+        row[4] = dash(it.origin);
+    }
+
     const region_owned = try allocator.dupe(u8, region);
     errdefer allocator.free(region_owned);
 
@@ -161,6 +148,8 @@ pub fn init(
         .fg_color = fg_color,
         .bg_color = bg_color,
         .items = items,
+        .cells = cells,
+        .state = .init(allocator),
         .alloc = allocator,
         .credentials = credentials,
         .region = region_owned,
@@ -175,55 +164,60 @@ pub fn breadcrumb(self: *RoutesView) []const u8 {
 }
 
 pub fn deinit(self: *RoutesView) void {
+    self.state.deinit();
     for (self.items) |it| it.deinit(self.alloc);
     self.alloc.free(self.items);
+    self.alloc.free(self.cells);
     self.alloc.free(self.region);
+}
+
+// ─── Filter / sort (driven by the command bar) ───────────────────────────────
+
+pub fn setLiveFilter(self: *RoutesView, text: []const u8) void {
+    self.state.setLiveFilter(text);
+}
+
+pub fn commitFilter(self: *RoutesView, text: []const u8) void {
+    self.state.commitFilter(text);
+}
+
+pub fn setFilterExpr(self: *RoutesView, result: filter_mod.ParseResult) void {
+    self.state.setFilterExpr(result);
+}
+
+pub fn clearFilterExpr(self: *RoutesView) void {
+    self.state.clearFilterExpr();
+}
+
+/// Sorts by the given column indices (see `parseSortKey`).
+pub fn setSort(self: *RoutesView, keys: []const usize, dir: constants.SortDir) void {
+    self.state.setSort(keys, dir);
+}
+
+/// Column index for a `:sort` name.
+pub fn parseSortKey(tok: []const u8) ?usize {
+    return table.columnIndex(spec, tok);
 }
 
 // ─── Event handling ──────────────────────────────────────────────────────────
 
-fn resetSelection(self: *RoutesView) void {
-    self.selected = 0;
-    self.scroll_offset = 0;
+fn rowCount(self: *RoutesView) usize {
+    return self.state.visible(spec, self.cells).len;
 }
 
 pub fn handleEvent(self: *RoutesView, event: Event, ctx: ViewContext) !Action {
-    const count = self.items.len;
-
     switch (event) {
         .key => |k| switch (k) {
             .ctrl_c => return .quit,
-            .char => |c| switch (c) {
-                'q' => return .{ .push = .{ .confirm = ConfirmView.init(self.fg_color, self.bg_color) } },
-                'j' => if (count > 0 and self.selected < count - 1) {
-                    self.selected += 1;
-                },
-                'k' => if (self.selected > 0) {
-                    self.selected -= 1;
-                },
-                'g' => {
-                    if (self.pending_g) {
-                        self.resetSelection();
-                        self.pending_g = false;
-                    } else {
-                        self.pending_g = true;
-                    }
-                },
-                'G' => {
-                    self.pending_g = false;
-                    if (count > 0) self.selected = count - 1;
-                },
-                else => self.pending_g = false,
+            .char => |c| {
+                if (c == 'q') return .{ .push = .{ .confirm = ConfirmView.init(self.fg_color, self.bg_color) } };
+                _ = self.state.handleChar(c, self.rowCount());
             },
-            .down => if (count > 0 and self.selected < count - 1) {
-                self.selected += 1;
-            },
-            .up => if (self.selected > 0) {
-                self.selected -= 1;
-            },
+            .down => self.state.moveDown(self.rowCount()),
+            .up => self.state.moveUp(),
             .enter => {
-                if (self.selected >= count) return .none;
-                const item = self.items[self.selected];
+                const row = self.state.selectedRow(spec, self.cells) orelse return .none;
+                const item = self.items[row];
                 if (!item.isIgw()) return .none;
                 const v = try InternetGatewayView.init(
                     ctx.allocator,
@@ -238,7 +232,10 @@ pub fn handleEvent(self: *RoutesView, event: Event, ctx: ViewContext) !Action {
                 );
                 return .{ .push = .{ .vpc_internet_gateway = v } };
             },
-            .escape => return .pop,
+            .escape => {
+                if (self.state.clearOne()) return .none;
+                return .pop;
+            },
             else => {},
         },
         else => {},
@@ -246,182 +243,53 @@ pub fn handleEvent(self: *RoutesView, event: Event, ctx: ViewContext) !Action {
     return .none;
 }
 
-// ─── Rendering ───────────────────────────────────────────────────────────────
-
-fn modeFor(width: i16) Mode {
-    if (width >= 110) return .wide;
-    if (width >= 80) return .medium;
-    return .narrow;
-}
-
-fn destWidth(inner: usize, mode: Mode) usize {
-    var fixed: usize = 0;
-    for (columnsFor(mode)) |col| fixed += columnWidth(col) + 1;
-    return if (inner > fixed + 2) inner - fixed else 2;
-}
-
-fn writePaddedCell(writer: *std.Io.Writer, text: []const u8, cell_w: usize) !void {
-    const content_w = if (cell_w >= 2) cell_w - 2 else 0;
-    try writer.writeByte(' ');
-    const shown = if (text.len > content_w) text[0..content_w] else text;
-    try writer.writeAll(shown);
-    for (shown.len..content_w) |_| try writer.writeByte(' ');
-    try writer.writeByte(' ');
-}
-
-fn writeVert(self: *RoutesView, writer: *std.Io.Writer, selected: bool, reset: bool) !void {
-    if (selected) {
-        try writer.writeAll(self.bg_color);
-        try writer.writeAll(terminal.FG_BLACK);
-    } else {
-        try writer.writeAll(self.fg_color);
-    }
-    try writer.writeAll(constants.VERTICAL);
-    if (reset) try writer.writeAll(terminal.RESET);
-}
-
-fn writeSepRow(self: *RoutesView, writer: *std.Io.Writer, dest_w: usize, mode: Mode, bottom: bool) !void {
-    const left = if (bottom) constants.BOTTOM_LEFT else constants.LEFT_T;
-    const mid = if (bottom) constants.BOTTOM_T else constants.CROSS;
-    const right = if (bottom) constants.BOTTOM_RIGHT else constants.RIGHT_T;
-
-    try writer.writeAll(self.fg_color);
-    try writer.writeAll(left);
-    for (0..dest_w) |_| try writer.writeAll(constants.HORIZONTAL);
-    for (columnsFor(mode)) |col| {
-        try writer.writeAll(mid);
-        for (0..columnWidth(col)) |_| try writer.writeAll(constants.HORIZONTAL);
-    }
-    try writer.writeAll(right);
-    try writer.writeAll(terminal.RESET);
-}
-
-fn writeHeaderCell(self: *RoutesView, writer: *std.Io.Writer, text: []const u8, cell_w: usize) !void {
-    const content_w = if (cell_w >= 2) cell_w - 2 else 0;
-    const text_len = @min(text.len, content_w);
-    const pad = content_w - text_len;
-    const left_pad = pad / 2;
-    const right_pad = pad - left_pad;
-    try writer.writeByte(' ');
-    try writer.writeAll(self.bg_color);
-    try writer.writeAll(terminal.FG_BLACK);
-    for (0..left_pad) |_| try writer.writeByte(' ');
-    try writer.writeAll(text[0..text_len]);
-    for (0..right_pad) |_| try writer.writeByte(' ');
-    try writer.writeAll(terminal.RESET);
-    try writer.writeByte(' ');
-}
-
-fn writeHeaderRow(self: *RoutesView, writer: *std.Io.Writer, dest_w: usize, mode: Mode) !void {
-    try self.writeVert(writer, false, true);
-    try self.writeHeaderCell(writer, "Destination", dest_w);
-    for (columnsFor(mode)) |col| {
-        try self.writeVert(writer, false, true);
-        try self.writeHeaderCell(writer, columnTitle(col), columnWidth(col));
-    }
-    try self.writeVert(writer, false, true);
-}
-
-fn writeItemRow(self: *RoutesView, writer: *std.Io.Writer, item: RouteItem, sel: bool, dest_w: usize, mode: Mode) !void {
-    try self.writeVert(writer, sel, !sel);
-
-    const content_w = if (dest_w >= 2) dest_w - 2 else 0;
-    const max_dest = if (content_w >= 2) content_w - 2 else 0;
-    const display = if (item.destination.len > 0) item.destination else "-";
-    try writer.writeByte(' ');
-    try writer.writeAll(if (sel) "▸ " else "  ");
-    const shown = if (display.len > max_dest) display[0..max_dest] else display;
-    try writer.writeAll(shown);
-    for (shown.len..max_dest) |_| try writer.writeByte(' ');
-    try writer.writeByte(' ');
-
-    for (columnsFor(mode)) |col| {
-        try self.writeVert(writer, sel, !sel);
-        try writePaddedCell(writer, item.column(col), columnWidth(col));
-    }
-
-    try self.writeVert(writer, sel, true);
-}
-
-fn writeEmptyRow(self: *RoutesView, writer: *std.Io.Writer, dest_w: usize, mode: Mode) !void {
-    try self.writeVert(writer, false, true);
-    for (0..dest_w) |_| try writer.writeByte(' ');
-    for (columnsFor(mode)) |col| {
-        try self.writeVert(writer, false, true);
-        for (0..columnWidth(col)) |_| try writer.writeByte(' ');
-    }
-    try self.writeVert(writer, false, true);
-}
-
 pub fn render(self: *RoutesView, writer: *std.Io.Writer, size: Coord) !void {
-    if (size.x < 10 or size.y < 4) return;
-    const w: usize = @intCast(size.x);
-    const h: usize = @intCast(size.y);
-    const inner = w - 2;
-    const mode = modeFor(size.x);
-    const dest_w = destWidth(inner, mode);
-    const show_header = h >= 6;
-    const data_rows = if (show_header) h - 3 else h - 1;
-
-    if (show_header) {
-        try self.writeHeaderRow(writer, dest_w, mode);
-        try writer.writeAll("\r\n");
-        try self.writeSepRow(writer, dest_w, mode, false);
-        try writer.writeAll("\r\n");
-    }
-
-    const total = self.items.len;
-    if (total > 0) {
-        if (self.selected >= total) self.selected = total - 1;
-        if (self.selected < self.scroll_offset) self.scroll_offset = self.selected;
-        if (data_rows > 0 and self.selected >= self.scroll_offset + data_rows)
-            self.scroll_offset = self.selected - data_rows + 1;
-    } else {
-        self.resetSelection();
-    }
-
-    var rendered: usize = 0;
-    var idx = self.scroll_offset;
-    while (idx < total and rendered < data_rows) : (idx += 1) {
-        try self.writeItemRow(writer, self.items[idx], idx == self.selected, dest_w, mode);
-        try writer.writeAll("\r\n");
-        rendered += 1;
-    }
-    for (rendered..data_rows) |_| {
-        try self.writeEmptyRow(writer, dest_w, mode);
-        try writer.writeAll("\r\n");
-    }
-
-    try self.writeSepRow(writer, dest_w, mode, true);
+    try table.render(writer, size, self.fg_color, self.bg_color, spec, self.cells, &self.state);
 }
 
 // ============================================================================
 // Tests
 // ============================================================================
 
-test "modeFor thresholds" {
-    try std.testing.expectEqual(Mode.wide, modeFor(110));
-    try std.testing.expectEqual(Mode.medium, modeFor(80));
-    try std.testing.expectEqual(Mode.narrow, modeFor(79));
-}
-
-test "destWidth shrinks with columns" {
-    try std.testing.expect(destWidth(150, .narrow) < 150);
-    try std.testing.expect(destWidth(150, .wide) < destWidth(150, .medium));
-    try std.testing.expectEqual(@as(usize, 2), destWidth(10, .wide));
-}
-
-test "routeToItem marks propagated routes and resolves gateway names" {
-    const a = std.testing.allocator;
-    const route: Ec2.Route = .{
-        .destination = @constCast("0.0.0.0/0"),
-        .target = @constCast("igw-1"),
+fn testRoute(destination: []const u8, target: []const u8, origin: []const u8) Ec2.Route {
+    return .{
+        .destination = @constCast(destination),
+        .target = @constCast(target),
         .state = @constCast("active"),
-        .origin = @constCast("EnableVgwRoutePropagation"),
+        .origin = @constCast(origin),
     };
-    const item = try routeToItem(a, route, null);
-    defer item.deinit(a);
-    try std.testing.expectEqualStrings("Yes", item.propagated);
-    try std.testing.expect(item.isIgw());
-    try std.testing.expectEqualStrings("", item.igw_name);
+}
+
+test "routes view marks propagated routes and keeps gateway targets selectable" {
+    const routes = [_]Ec2.Route{
+        testRoute("10.0.0.0/16", "local", "CreateRouteTable"),
+        testRoute("0.0.0.0/0", "igw-1", "CreateRoute"),
+        testRoute("192.168.0.0/16", "vgw-1", "EnableVgwRoutePropagation"),
+    };
+    var view = try init(std.testing.allocator, undefined, "us-east-1", &routes, null, "", "", "VPC");
+    defer view.deinit();
+
+    try std.testing.expectEqual(@as(usize, 3), view.rowCount());
+    const n = spec.columns.len;
+    try std.testing.expectEqualStrings("No", view.cells[1 * n + 3]);
+    try std.testing.expectEqualStrings("Yes", view.cells[2 * n + 3]);
+    try std.testing.expect(view.items[1].isIgw());
+    try std.testing.expect(!view.items[0].isIgw());
+}
+
+test "sorting and filtering resolve the selected row back to its route" {
+    const routes = [_]Ec2.Route{
+        testRoute("10.0.0.0/16", "local", "CreateRouteTable"),
+        testRoute("0.0.0.0/0", "igw-1", "CreateRoute"),
+        testRoute("192.168.0.0/16", "vgw-1", "EnableVgwRoutePropagation"),
+    };
+    var view = try init(std.testing.allocator, undefined, "us-east-1", &routes, null, "", "", "VPC");
+    defer view.deinit();
+
+    view.setSort(&.{parseSortKey("destination").?}, .asc);
+    try std.testing.expectEqual(@as(?usize, 1), view.state.selectedRow(spec, view.cells));
+
+    view.commitFilter("vgw");
+    try std.testing.expectEqual(@as(usize, 1), view.rowCount());
+    try std.testing.expectEqual(@as(?usize, 2), view.state.selectedRow(spec, view.cells));
 }

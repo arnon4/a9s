@@ -61,6 +61,12 @@ const InternetGatewaysView = @import("../app/views/vpc/internet_gateways.zig");
 const InternetGatewayView = @import("../app/views/vpc/internet_gateway.zig");
 const RouteTableRoutesView = @import("../app/views/vpc/route_table_routes.zig");
 const NetworkMapView = @import("../app/views/vpc/network_map.zig");
+const NetworkAclsView = @import("../app/views/vpc/network_acls.zig");
+const NetworkAclView = @import("../app/views/vpc/network_acl.zig");
+const NetworkAclRulesView = @import("../app/views/vpc/network_acl_rules.zig");
+const SecurityGroupsView = @import("../app/views/vpc/security_groups.zig");
+const SecurityGroupView = @import("../app/views/vpc/security_group.zig");
+const SecurityGroupRulesView = @import("../app/views/vpc/security_group_rules.zig");
 
 const Event = @import("../event.zig").Event;
 
@@ -136,6 +142,12 @@ pub const View = union(enum) {
     vpc_internet_gateway: InternetGatewayView,
     vpc_route_table_routes: RouteTableRoutesView,
     vpc_network_map: NetworkMapView,
+    vpc_network_acls: NetworkAclsView,
+    vpc_network_acl: NetworkAclView,
+    vpc_network_acl_rules: NetworkAclRulesView,
+    vpc_security_groups: SecurityGroupsView,
+    vpc_security_group: SecurityGroupView,
+    vpc_security_group_rules: SecurityGroupRulesView,
 
     const Self = @This();
 
