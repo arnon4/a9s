@@ -13,6 +13,7 @@ const LogGroupsView = @import("logs/log_groups.zig");
 const IamHomeView = @import("iam/iam_home.zig");
 const SecretsView = @import("secretsmanager/secrets.zig");
 const CloudTrailTrailsView = @import("cloudtrail/trails.zig");
+const VpcsView = @import("vpc/vpcs.zig");
 const ConfirmView = @import("../../ui/confirm.zig");
 
 const BaseView = @This();
@@ -40,6 +41,7 @@ pub fn init(environ_map: *const std.process.Environ.Map) BaseView {
                 "IAM",
                 "Secrets Manager",
                 "CloudTrail",
+                "VPC",
             },
             .fg_color = fg_color,
             .bg_color = bg_color,
@@ -105,6 +107,10 @@ pub fn handleEvent(self: *BaseView, event: Event, ctx: ViewContext) !Action {
                 5 => blk: {
                     const v = try CloudTrailTrailsView.init(ctx.allocator, ctx.io, ctx.profile_set, ctx.regions, ctx.color_support);
                     break :blk .{ .push = .{ .cloudtrail_trails = v } };
+                },
+                6 => blk: {
+                    const v = try VpcsView.init(ctx.allocator, ctx.io, ctx.profile_set, ctx.regions, ctx.color_support);
+                    break :blk .{ .push = .{ .vpc_vpcs = v } };
                 },
                 else => .none,
             },

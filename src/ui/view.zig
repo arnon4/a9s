@@ -49,6 +49,8 @@ const ResourcePolicyView = @import("../app/views/secretsmanager/resource_policy.
 const CloudTrailTrailsView = @import("../app/views/cloudtrail/trails.zig");
 const CloudTrailEventsView = @import("../app/views/cloudtrail/events.zig");
 const CloudTrailEventDetailView = @import("../app/views/cloudtrail/event_detail.zig");
+const VpcsView = @import("../app/views/vpc/vpcs.zig");
+const VpcView = @import("../app/views/vpc/vpc.zig");
 
 const Event = @import("../event.zig").Event;
 
@@ -112,6 +114,8 @@ pub const View = union(enum) {
     cloudtrail_trails: CloudTrailTrailsView,
     cloudtrail_events: CloudTrailEventsView,
     cloudtrail_event_detail: CloudTrailEventDetailView,
+    vpc_vpcs: VpcsView,
+    vpc_vpc: VpcView,
 
     const Self = @This();
 

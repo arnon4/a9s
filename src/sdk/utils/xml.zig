@@ -35,6 +35,55 @@ pub fn extractTagContent(allocator: Allocator, xml: []const u8, tag: []const u8)
     return unescapeEntities(allocator, after_name[content_start .. content_start + end]);
 }
 
+/// Iterates the direct children of an XML fragment named `name`, yielding each
+/// child's raw inner content (nested elements are skipped over by depth, so
+/// same-named descendants are never yielded).
+pub const ChildIterator = struct {
+    src: []const u8,
+    name: []const u8,
+    pos: usize = 0,
+
+    pub fn next(self: *ChildIterator) ?[]const u8 {
+        var depth: usize = 0;
+        var content_start: ?usize = null;
+        while (std.mem.findScalarPos(u8, self.src, self.pos, '<')) |lt| {
+            const gt = std.mem.findScalarPos(u8, self.src, lt + 1, '>') orelse return null;
+            const raw = self.src[lt + 1 .. gt];
+            self.pos = gt + 1;
+            if (raw.len == 0 or raw[0] == '?' or raw[0] == '!') continue;
+            if (raw[0] == '/') {
+                if (depth == 0) return null;
+                depth -= 1;
+                if (depth == 0) {
+                    if (content_start) |s| return self.src[s..lt];
+                }
+                continue;
+            }
+            const self_closing = raw[raw.len - 1] == '/';
+            const name_end = std.mem.findAny(u8, raw, " \t\r\n/") orelse raw.len;
+            if (depth == 0 and std.mem.eql(u8, raw[0..name_end], self.name)) {
+                if (self_closing) return "";
+                content_start = self.pos;
+                depth = 1;
+                continue;
+            }
+            if (!self_closing) depth += 1;
+        }
+        return null;
+    }
+};
+
+/// Raw inner content of the first direct child of `src` named `tag`.
+pub fn child(src: []const u8, tag: []const u8) ?[]const u8 {
+    var it: ChildIterator = .{ .src = src, .name = tag };
+    return it.next();
+}
+
+/// Caller-owned, entity-unescaped copy of `src`.
+pub fn unescape(allocator: Allocator, src: []const u8) ![]u8 {
+    return unescapeEntities(allocator, src);
+}
+
 fn unescapeEntities(allocator: Allocator, input: []const u8) ![]u8 {
     var out = std.ArrayList(u8).empty;
     errdefer out.deinit(allocator);
@@ -136,6 +185,26 @@ test "extractTagContent handles self-closing tag" {
     const val = try extractTagContent(allocator, doc, "LocationConstraint");
     defer allocator.free(val);
     try std.testing.expectEqualStrings("", val);
+}
+
+test "child skips nested same-name elements" {
+    const doc = "<?xml version=\"1.0\"?><R><state>a</state><set><item><state>b</state></item></set></R>";
+    const r = child(doc, "R").?;
+    try std.testing.expectEqualStrings("a", child(r, "state").?);
+    try std.testing.expect(child(r, "item") == null);
+}
+
+test "ChildIterator yields direct items only" {
+    const doc = "<item><tagSet><item><k>x</k></item></tagSet><v>1</v></item><item><v>2</v></item><x/>";
+    var it: ChildIterator = .{ .src = doc, .name = "item" };
+    try std.testing.expectEqualStrings("1", child(it.next().?, "v").?);
+    try std.testing.expectEqualStrings("2", child(it.next().?, "v").?);
+    try std.testing.expect(it.next() == null);
+}
+
+test "child self-closing is empty" {
+    try std.testing.expectEqualStrings("", child("<a><b/></a>", "a").?[0..0]);
+    try std.testing.expectEqualStrings("", child("<b/><c>1</c>", "b").?);
 }
 
 test "extractTagContent does not match tag prefix" {
