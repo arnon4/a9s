@@ -49,6 +49,15 @@ pub const RouteTable = describeRouteTablesMod.RouteTable;
 pub const Route = describeRouteTablesMod.Route;
 pub const RouteTableAssociation = describeRouteTablesMod.Association;
 
+const describeInternetGatewaysMod = @import("describe/internet_gateways.zig");
+const describeInternetGatewaysImpl = describeInternetGatewaysMod.describeInternetGateways;
+
+pub const DescribeInternetGatewaysOptions = describeInternetGatewaysMod.Options;
+pub const DescribeInternetGatewaysParams = describeInternetGatewaysMod.Params;
+pub const DescribeInternetGatewaysResult = describeInternetGatewaysMod.Result;
+pub const InternetGateway = describeInternetGatewaysMod.InternetGateway;
+pub const InternetGatewayAttachment = describeInternetGatewaysMod.Attachment;
+
 pub const ClientOptions = struct {
     region: []const u8 = "us-east-1",
     io: std.Io,
@@ -108,6 +117,11 @@ pub const Client = struct {
     pub fn describeRouteTables(self: *Client, options: DescribeRouteTablesOptions) !DescribeRouteTablesResult {
         return describeRouteTablesImpl(self, options);
     }
+
+    /// Describe internet gateways. Caller owns the result and must call deinit.
+    pub fn describeInternetGateways(self: *Client, options: DescribeInternetGatewaysOptions) !DescribeInternetGatewaysResult {
+        return describeInternetGatewaysImpl(self, options);
+    }
 };
 
 // ============================================================================
@@ -150,5 +164,6 @@ test {
     _ = @import("describe/subnets.zig");
     _ = @import("describe/dhcp_options.zig");
     _ = @import("describe/route_tables.zig");
+    _ = @import("describe/internet_gateways.zig");
     _ = @import("request.zig");
 }

@@ -12,6 +12,7 @@ const props_mod = @import("../../../ui/props.zig");
 const constants = @import("../../../ui/constants.zig");
 const ConfirmView = @import("../../../ui/confirm.zig");
 const VpcView = @import("vpc.zig");
+const RoutesView = @import("route_table_routes.zig");
 
 const RouteTableView = @This();
 pub const name: []const u8 = "Route Table";
@@ -22,8 +23,7 @@ const vpcs_breadcrumb = "VPC " ++ constants.SEP_ARROW ++ " VPCs";
 const MAX_TAG_PROPS = 50;
 const MAX_ASSOC_PROPS = 100;
 const MAX_VGW_PROPS = 20;
-const MAX_ROUTE_PROPS = 300;
-const MAX_PROPS = 12 + MAX_TAG_PROPS + MAX_ASSOC_PROPS + MAX_VGW_PROPS + MAX_ROUTE_PROPS;
+const MAX_PROPS = 8 + MAX_TAG_PROPS + MAX_ASSOC_PROPS + MAX_VGW_PROPS;
 
 // ─── Background fetch context ────────────────────────────────────────────────
 
@@ -34,6 +34,8 @@ const FetchCtx = struct {
     region: []u8,
     route_table_id: []u8,
     result: ?Ec2.DescribeRouteTablesResult = null,
+    /// Gateways targeted by routes; handed to the routes view to label them with their Name tags.
+    igws: ?Ec2.DescribeInternetGatewaysResult = null,
     /// Name tag of the owning VPC, when it has one.
     vpc_name: ?[]u8 = null,
     err: ?anyerror = null,
@@ -68,7 +70,17 @@ fn fetchThread(ctx: *FetchCtx) void {
         return;
     }
 
-    // Best effort: the VPC's Name tag labels the breadcrumb when drilling into it.
+    // Best effort: Name tags label the breadcrumb when drilling into a gateway or the VPC.
+    var igw_ids: std.ArrayList([]const u8) = .empty;
+    defer igw_ids.deinit(ctx.allocator);
+    for (result.route_tables[0].routes) |r| {
+        if (!isIgwTarget(r.target)) continue;
+        igw_ids.append(ctx.allocator, r.target) catch break;
+    }
+    if (igw_ids.items.len > 0) {
+        ctx.igws = client.describeInternetGateways(.{ .params = .{ .internet_gateway_ids = igw_ids.items } }) catch null;
+    }
+
     const vpc_ids = [_][]const u8{result.route_tables[0].vpc_id};
     const vpc_result = client.describeVpcs(.{ .params = .{ .vpc_ids = &vpc_ids } }) catch return;
     defer vpc_result.deinit();
@@ -83,6 +95,12 @@ fg_color: []const u8,
 bg_color: []const u8,
 scroll: usize = 0,
 pending_g: bool = false,
+sel: usize = 0,
+/// Row of the selected entry and visible row count, as of the last render.
+sel_row: usize = 0,
+view_rows: usize = 0,
+/// Scroll to keep the selected entry on screen at the next render.
+follow_sel: bool = false,
 display_name: []u8,
 ctx: *FetchCtx,
 alloc: std.mem.Allocator,
@@ -141,6 +159,7 @@ pub fn deinit(self: *RouteTableView) void {
     const alloc = self.ctx.allocator;
     self.ctx.thread.join();
     if (self.ctx.result) |r| r.deinit();
+    if (self.ctx.igws) |r| r.deinit();
     if (self.ctx.vpc_name) |n| alloc.free(n);
     alloc.free(self.ctx.region);
     alloc.free(self.ctx.route_table_id);
@@ -157,15 +176,60 @@ fn vpcId(self: *const RouteTableView) ?[]const u8 {
     return if (id.len > 0) id else null;
 }
 
+fn isIgwTarget(target: []const u8) bool {
+    return std.mem.startsWith(u8, target, "igw-");
+}
+
+/// Selectable entries: the VPC (when known), then the "View Routes" button.
+const Selection = enum { vpc, view_routes };
+
+fn vpcOffset(self: *const RouteTableView) usize {
+    return @intFromBool(self.vpcId() != null);
+}
+
+fn selection(self: *const RouteTableView) Selection {
+    const count = self.vpcOffset() + 1;
+    const i = @min(self.sel, count - 1);
+    return if (self.vpcOffset() == 1 and i == 0) .vpc else .view_routes;
+}
+
+/// The route table, once the fetch has finished without error.
+fn loadedTable(self: *const RouteTableView) ?Ec2.RouteTable {
+    if (!self.ctx.done.load(.acquire) or self.ctx.err != null) return null;
+    return self.ctx.result.?.route_tables[0];
+}
+
+/// Moves the selection between the VPC row and the button.
+/// Returns false when it cannot move, so the caller scrolls instead.
+fn moveSel(self: *RouteTableView, delta: i32) bool {
+    self.pending_g = false;
+    if (self.vpcOffset() == 0) return false;
+    switch (self.selection()) {
+        .vpc => {
+            if (delta <= 0) return false;
+            if (self.view_rows == 0 or self.sel_row < self.scroll or self.sel_row >= self.scroll + self.view_rows) return false;
+            self.sel = 1;
+        },
+        .view_routes => {
+            if (delta >= 0) return false;
+            self.sel = 0;
+            self.follow_sel = true;
+        },
+    }
+    return true;
+}
+
 pub fn handleEvent(self: *RouteTableView, event: Event, ctx: ViewContext) !Action {
     switch (event) {
         .key => |k| switch (k) {
             .ctrl_c => return .quit,
             .char => |c| switch (c) {
                 'q' => return .{ .push = .{ .confirm = ConfirmView.init(self.fg_color, self.bg_color) } },
-                'j' => self.scroll += 1,
-                'k' => if (self.scroll > 0) {
-                    self.scroll -= 1;
+                'j' => if (!self.moveSel(1)) {
+                    self.scroll += 1;
+                },
+                'k' => if (!self.moveSel(-1)) {
+                    if (self.scroll > 0) self.scroll -= 1;
                 },
                 'g' => {
                     if (self.pending_g) {
@@ -182,24 +246,42 @@ pub fn handleEvent(self: *RouteTableView, event: Event, ctx: ViewContext) !Actio
                 },
                 else => self.pending_g = false,
             },
-            .down => self.scroll += 1,
-            .up => if (self.scroll > 0) {
-                self.scroll -= 1;
+            .down => if (!self.moveSel(1)) {
+                self.scroll += 1;
             },
-            .enter => {
-                const id = self.vpcId() orelse return .none;
-                const v = try VpcView.init(
-                    ctx.allocator,
-                    ctx.io,
-                    self.ctx.credentials,
-                    self.ctx.region,
-                    id,
-                    self.ctx.vpc_name orelse id,
-                    self.fg_color,
-                    self.bg_color,
-                    vpcs_breadcrumb,
-                );
-                return .{ .push = .{ .vpc_vpc = v } };
+            .up => if (!self.moveSel(-1)) {
+                if (self.scroll > 0) self.scroll -= 1;
+            },
+            .enter => switch (self.selection()) {
+                .vpc => {
+                    const id = self.vpcId() orelse return .none;
+                    const v = try VpcView.init(
+                        ctx.allocator,
+                        ctx.io,
+                        self.ctx.credentials,
+                        self.ctx.region,
+                        id,
+                        self.ctx.vpc_name orelse id,
+                        self.fg_color,
+                        self.bg_color,
+                        vpcs_breadcrumb,
+                    );
+                    return .{ .push = .{ .vpc_vpc = v } };
+                },
+                .view_routes => {
+                    const t = self.loadedTable() orelse return .none;
+                    const v = try RoutesView.init(
+                        ctx.allocator,
+                        self.ctx.credentials,
+                        self.ctx.region,
+                        t.routes,
+                        self.ctx.igws,
+                        self.fg_color,
+                        self.bg_color,
+                        self.breadcrumb(),
+                    );
+                    return .{ .push = .{ .vpc_route_table_routes = v } };
+                },
             },
             .escape => return .pop,
             else => {},
@@ -238,17 +320,13 @@ fn assocLabel(text: *TextBuf, a: Ec2.RouteTableAssociation) []const u8 {
     return text.print("{s} [{s}]", .{ orDash(a.association_id), orDash(a.state) });
 }
 
-fn routeLabel(text: *TextBuf, r: Ec2.Route) []const u8 {
-    return text.print("{s} {s} {s} [{s}]", .{ orDash(r.destination), constants.SEP_ARROW, orDash(r.target), orDash(r.state) });
-}
-
 pub fn render(self: *RouteTableView, writer: *std.Io.Writer, size: Coord) !void {
     if (size.x < 10 or size.y < 2) return;
     const w: usize = @intCast(size.x);
     const h: usize = @intCast(size.y);
 
     const done = self.ctx.done.load(.acquire);
-    const table: ?Ec2.RouteTable = if (done and self.ctx.err == null) self.ctx.result.?.route_tables[0] else null;
+    const table = self.loadedTable();
 
     var text_storage: [32768]u8 = undefined;
     var text: TextBuf = .{ .buf = &text_storage };
@@ -276,8 +354,9 @@ pub fn render(self: *RouteTableView, writer: *std.Io.Writer, size: Coord) !void 
     props_buf[n] = .{
         .label = "VPC ID",
         .value = if (table) |t| orDash(t.vpc_id) else pending,
-        .highlight = if (self.vpcId() != null) self.bg_color else "",
+        .highlight = if (self.vpcOffset() == 1 and self.selection() == .vpc) self.bg_color else "",
     };
+    const vpc_row = n;
     n += 1;
     props_buf[n] = .{ .label = "Account", .value = if (table) |t| orDash(t.owner_id) else pending };
     n += 1;
@@ -303,15 +382,6 @@ pub fn render(self: *RouteTableView, writer: *std.Io.Writer, size: Coord) !void 
             n += 1;
         }
 
-        if (t.routes.len == 0) {
-            props_buf[n] = .{ .label = "Routes", .value = dash };
-            n += 1;
-        }
-        for (t.routes[0..@min(t.routes.len, MAX_ROUTE_PROPS)], 0..) |r, i| {
-            props_buf[n] = .{ .label = if (i == 0) "Routes" else "", .value = routeLabel(&text, r) };
-            n += 1;
-        }
-
         if (t.tags.len == 0) {
             props_buf[n] = .{ .label = "Tags", .value = dash };
             n += 1;
@@ -326,15 +396,44 @@ pub fn render(self: *RouteTableView, writer: *std.Io.Writer, size: Coord) !void 
     } else {
         props_buf[n] = .{ .label = "Associations", .value = pending };
         n += 1;
-        props_buf[n] = .{ .label = "Routes", .value = pending };
-        n += 1;
     }
 
     const total = n;
-    const data_rows = if (h >= 1) h - 1 else 0;
+    const props_h = if (h >= 2) h - 1 else h;
+    const data_rows = if (props_h >= 1) props_h - 1 else 0;
+    self.view_rows = data_rows;
+    self.sel_row = vpc_row;
+    if (self.follow_sel and data_rows > 0) {
+        self.follow_sel = false;
+        if (self.sel_row < self.scroll) self.scroll = self.sel_row;
+        if (self.sel_row >= self.scroll + data_rows) self.scroll = self.sel_row + 1 - data_rows;
+    }
     if (data_rows > 0 and self.scroll + data_rows > total) {
         self.scroll = if (total > data_rows) total - data_rows else 0;
     }
 
-    try props_mod.render(writer, props_buf[0..n], self.scroll, w, h, self.fg_color);
+    try props_mod.render(writer, props_buf[0..n], self.scroll, w, props_h, self.fg_color);
+
+    if (h >= 2) {
+        try writer.writeAll("\r\n");
+        try self.renderActionBar(writer, w);
+    }
+}
+
+fn renderActionBar(self: *RouteTableView, writer: *std.Io.Writer, w: usize) !void {
+    const btn = " [ View Routes ] ";
+    if (self.loadedTable() == null) {
+        try writer.writeAll(terminal.DIM);
+        try writer.writeAll(self.fg_color);
+    } else if (self.selection() == .view_routes) {
+        try writer.writeAll(self.bg_color);
+        try writer.writeAll(terminal.FG_BLACK);
+    } else {
+        try writer.writeAll(self.fg_color);
+    }
+    try writer.writeAll(btn);
+    try writer.writeAll(terminal.RESET);
+    if (w > btn.len) {
+        for (0..w - btn.len) |_| try writer.writeByte(' ');
+    }
 }

@@ -11,6 +11,7 @@ const ConfirmView = @import("../../../ui/confirm.zig");
 const VpcsView = @import("vpcs.zig");
 const SubnetsView = @import("subnets.zig");
 const RouteTablesView = @import("route_tables.zig");
+const InternetGatewaysView = @import("internet_gateways.zig");
 
 const VpcHomeView = @This();
 pub const name: []const u8 = "VPC";
@@ -19,6 +20,7 @@ const MENU_ITEMS = [_][]const u8{
     "VPCs",
     "Subnets",
     "Route Tables",
+    "Internet Gateways",
 };
 
 fg_color: []const u8,
@@ -83,6 +85,10 @@ pub fn handleEvent(self: *VpcHomeView, event: Event, ctx: ViewContext) !Action {
                 2 => { // Route Tables
                     const v = try RouteTablesView.init(ctx.allocator, ctx.io, ctx.profile_set, ctx.regions, ctx.color_support);
                     return .{ .push = .{ .vpc_route_tables = v } };
+                },
+                3 => { // Internet Gateways
+                    const v = try InternetGatewaysView.init(ctx.allocator, ctx.io, ctx.profile_set, ctx.regions, ctx.color_support);
+                    return .{ .push = .{ .vpc_internet_gateways = v } };
                 },
                 else => {},
             },

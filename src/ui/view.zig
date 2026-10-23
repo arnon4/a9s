@@ -57,6 +57,9 @@ const SubnetView = @import("../app/views/vpc/subnet.zig");
 const DhcpOptionsView = @import("../app/views/vpc/dhcp_options.zig");
 const RouteTablesView = @import("../app/views/vpc/route_tables.zig");
 const RouteTableView = @import("../app/views/vpc/route_table.zig");
+const InternetGatewaysView = @import("../app/views/vpc/internet_gateways.zig");
+const InternetGatewayView = @import("../app/views/vpc/internet_gateway.zig");
+const RouteTableRoutesView = @import("../app/views/vpc/route_table_routes.zig");
 
 const Event = @import("../event.zig").Event;
 
@@ -128,6 +131,9 @@ pub const View = union(enum) {
     vpc_dhcp_options: DhcpOptionsView,
     vpc_route_tables: RouteTablesView,
     vpc_route_table: RouteTableView,
+    vpc_internet_gateways: InternetGatewaysView,
+    vpc_internet_gateway: InternetGatewayView,
+    vpc_route_table_routes: RouteTableRoutesView,
 
     const Self = @This();
 
