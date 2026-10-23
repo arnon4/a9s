@@ -4,7 +4,7 @@ description: >
   Stage, commit, and push changes in the a9s repo. Use whenever the main
   agent needs to commit/push and doesn't need the full commit/test output
   in its own context — this agent runs it and reports back a terse summary.
-model: claude-haiku-4-5
+model: claude-haiku-5-5
 tools:
   - Bash
   - Read
