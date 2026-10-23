@@ -14,6 +14,9 @@ test {
     _ = @import("sdk/clients/s3/client.zig");
     _ = @import("sdk/clients/logs/client.zig");
     _ = @import("sdk/clients/iam/client.zig");
+    _ = @import("sdk/clients/ec2/client.zig");
+    _ = @import("app/views/vpc/vpcs.zig");
+    _ = @import("app/views/vpc/vpc.zig");
     _ = @import("app/views/logs/log_groups.zig");
 }
 

@@ -65,6 +65,21 @@ pub fn iam(support: terminal.ColorSupport) ViewColors {
     };
 }
 
+/// Networking theme — AWS networking purple (#8C4FFF), used by VPC views.
+pub fn purple(support: terminal.ColorSupport) ViewColors {
+    return switch (support) {
+        .truecolor => .{
+            .fg = terminal.TRUECOLOR_FG ++ "140;79;255m",
+            .bg = terminal.TRUECOLOR_BG ++ "140;79;255m",
+        },
+        .color256 => .{
+            .fg = terminal.BYTECOLOR_FG ++ "99m",
+            .bg = terminal.BYTECOLOR_BG ++ "99m",
+        },
+        .color16 => .{ .fg = terminal.FG_MAGENTA, .bg = terminal.BG_MAGENTA },
+    };
+}
+
 /// Green theme — used by S3 views.
 pub fn green(support: terminal.ColorSupport) ViewColors {
     return switch (support) {

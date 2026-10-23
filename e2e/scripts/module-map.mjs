@@ -12,6 +12,9 @@ export const MODULE_MAP = {
   iam: ["iam"],
   secretsmanager: ["secretsmanager"],
   cloudtrail: ["cloudtrail"],
+  vpc: ["vpc"],
+  // EC2 client currently backs only the VPC views.
+  ec2: ["vpc"],
   auth: ["auth"],
   help: ["help"],
   // SDK-only clients (no view): nothing to drive from the TUI, so no e2e file required.
