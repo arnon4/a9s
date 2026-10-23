@@ -25,6 +25,8 @@ pub const name: []const u8 = "Network Map";
 
 /// Width of a hop: two branch glyphs plus a four-character arrow.
 const hop_width = 6;
+/// Width of the subnet-to-route-table hop: line, mark, line, bracket glyph, arrow.
+const subnet_hop_width = 5;
 
 // ─── Background fetch context ────────────────────────────────────────────────
 
@@ -45,6 +47,7 @@ const FetchCtx = struct {
     vpces: ?Ec2.DescribeVpcEndpointsResult = null,
     vgws: ?Ec2.DescribeVpnGatewaysResult = null,
     eigws: ?Ec2.DescribeEgressOnlyInternetGatewaysResult = null,
+    nacls: ?Ec2.DescribeNetworkAclsResult = null,
     available: graph_mod.Availability = .{},
     err: ?anyerror = null,
     done: std.atomic.Value(bool) = .init(false),
@@ -87,6 +90,8 @@ fn fetchThread(ctx: *FetchCtx) void {
         ctx.err = e;
         return;
     };
+
+    ctx.nacls = optional(client.describeNetworkAcls(.{ .params = .{ .filters = &by_vpc } }), &ctx.available.nacls);
 
     // Only ask about target types that routes actually use.
     var need_igw = false;
@@ -218,6 +223,7 @@ pub fn deinit(self: *NetworkMapView) void {
     deinitOptional(c.vpces);
     deinitOptional(c.vgws);
     deinitOptional(c.eigws);
+    deinitOptional(c.nacls);
     const alloc = c.allocator;
     alloc.free(c.region);
     alloc.free(c.vpc_id);
@@ -265,6 +271,7 @@ fn rebuild(self: *NetworkMapView) !void {
         .vpces = resultSlice("vpc_endpoints", c.vpces),
         .vgws = resultSlice("vpn_gateways", c.vgws),
         .eigws = resultSlice("egress_only_internet_gateways", c.eigws),
+        .nacls = resultSlice("network_acls", c.nacls),
         .available = c.available,
     };
 
@@ -280,7 +287,7 @@ fn rebuild(self: *NetworkMapView) !void {
     for (g.cells, 0..) |cell, i| {
         grid[cell.row * graph_mod.col_count + @backingInt(cell.col)] = @intCast(i);
         const ci = @backingInt(cell.col);
-        const wd = if (cell.is_hop) hop_width else textCols(cell.text) + 1;
+        const wd = if (cell.col == .subnet_hop) subnet_hop_width else if (cell.is_hop) hop_width else textCols(cell.text) + 1;
         widths[ci] = @max(widths[ci], wd);
     }
 
@@ -475,6 +482,7 @@ fn markGlyph(m: Mark) []const u8 {
         .ok => "✓",
         .blocked => "✗",
         .unknown => "?",
+        .partial => "~",
     };
 }
 
@@ -483,6 +491,7 @@ fn markColor(m: Mark) []const u8 {
         .ok => terminal.FG_GREEN,
         .blocked => terminal.FG_RED,
         .unknown => terminal.FG_YELLOW,
+        .partial => terminal.FG_MAGENTA,
     };
 }
 
@@ -508,6 +517,8 @@ fn writeCell(self: *NetworkMapView, line: *Line, cell: Cell, selected: bool, sel
         try line.spaces(width -| textCols(cell.text));
         return;
     }
+
+    if (cell.col == .subnet_hop) return self.writeSubnetHop(line, cell, selected, faded);
 
     // Hop: branch glyphs, then the arrow with its mark.
     try line.raw(self.fg_color);
@@ -545,6 +556,36 @@ fn writeCell(self: *NetworkMapView, line: *Line, cell: Cell, selected: bool, sel
     try line.raw(terminal.RESET);
 }
 
+/// Subnet -> route table hop: `─✓─┴▶` (outbound) or `◀✓─┴─` (inbound); the mark is the subnet's NACL verdict.
+fn writeSubnetHop(self: *NetworkMapView, line: *Line, cell: Cell, selected: bool, faded: bool) !void {
+    const inbound = self.direction == .inbound;
+    try line.raw(self.fg_color);
+    if (faded) try line.raw(terminal.DIM);
+    try line.put(if (inbound) "◀" else "─");
+    if (selected) {
+        try line.raw(terminal.RESET);
+        try line.raw(self.bg_color);
+        try line.raw(terminal.FG_BLACK);
+    }
+    if (cell.mark) |m| {
+        if (!selected) try line.raw(markColor(m));
+        try line.put(markGlyph(m));
+    } else {
+        try line.put("─");
+    }
+    try line.raw(terminal.RESET);
+    try line.raw(self.fg_color);
+    if (faded) try line.raw(terminal.DIM);
+    try line.put("─");
+    try line.put(cell.pre);
+    if (inbound) {
+        try line.put(if (cell.body) "─" else " ");
+    } else {
+        try line.put(if (cell.body) "▶" else " ");
+    }
+    try line.raw(terminal.RESET);
+}
+
 fn writeDetail(self: *NetworkMapView, line: *Line, g: Graph) !void {
     const cell = g.cells[self.sel];
     var mark: ?Mark = cell.mark;
@@ -579,6 +620,10 @@ fn writeFooter(self: *NetworkMapView, line: *Line) !void {
     try line.put("✗");
     try line.raw(terminal.RESET);
     try line.put(" blocked  ");
+    try line.raw(terminal.FG_MAGENTA);
+    try line.put("~");
+    try line.raw(terminal.RESET);
+    try line.put(" partial  ");
     try line.raw(terminal.FG_YELLOW);
     try line.put("?");
     try line.raw(terminal.RESET);

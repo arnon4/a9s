@@ -4,11 +4,12 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Ec2 = @import("../../../sdk/clients/ec2/client.zig");
+const nacl = @import("network_map_nacl.zig");
 
 pub const Direction = enum { outbound, inbound };
 
-/// Reachability of one hop.
-pub const Mark = enum { ok, blocked, unknown };
+/// Reachability of one hop. `partial` is a subnet-level result where only some routed destinations pass.
+pub const Mark = enum { ok, blocked, unknown, partial };
 
 /// Whether each describe call used by the map succeeded. A failed call turns the
 /// hops that depend on it into `unknown` instead of guessing.
@@ -20,6 +21,7 @@ pub const Availability = struct {
     vpces: bool = true,
     vgws: bool = true,
     eigws: bool = true,
+    nacls: bool = true,
 };
 
 pub const Input = struct {
@@ -33,6 +35,7 @@ pub const Input = struct {
     vpces: []const Ec2.VpcEndpoint = &.{},
     vgws: []const Ec2.VpnGateway = &.{},
     eigws: []const Ec2.EgressOnlyInternetGateway = &.{},
+    nacls: []const Ec2.NetworkAcl = &.{},
     available: Availability = .{},
 };
 
@@ -141,6 +144,10 @@ const PathNode = struct {
 const Path = struct {
     nodes: [3]PathNode = undefined,
     len: usize = 0,
+    /// Route destinations (CIDRs or prefix list IDs) that lead to this target.
+    dests: []const []const u8 = &.{},
+    /// False for traffic that never leaves the VPC, which NACLs are not tested against.
+    probe: bool = true,
 
     fn push(self: *Path, node: PathNode) void {
         self.nodes[self.len] = node;
@@ -161,6 +168,7 @@ const Path = struct {
             if (n.hop.mark) |m| switch (m) {
                 .blocked => blocked = true,
                 .unknown => unknown = true,
+                .partial => {},
                 .ok => if (unknown) {
                     n.hop.mark = .unknown;
                     n.hop.reason = "Depends on an earlier hop that could not be evaluated";
@@ -224,6 +232,68 @@ const Builder = struct {
         return null;
     }
 
+    fn naclFor(self: *const Builder, subnet_id: []const u8) ?Ec2.NetworkAcl {
+        for (self.input.nacls) |n| {
+            for (n.associations) |assoc| {
+                if (std.mem.eql(u8, assoc.subnet_id, subnet_id)) return n;
+            }
+        }
+        for (self.input.nacls) |n| {
+            if (n.is_default) return n;
+        }
+        return null;
+    }
+
+    fn describeFailure(self: *Builder, f: nacl.Failure) ![]const u8 {
+        const dir: []const u8 = if (f.egress) "egress" else "ingress";
+        const verb: []const u8 = if (f.verdict.rule == 0) "has no rule allowing" else "denies";
+        const leg: []const u8 = if (f.is_return) "return traffic" else "traffic";
+        const port: u16 = if (f.is_return) nacl.ephemeral_port else nacl.service_port;
+        const preposition: []const u8 = if (f.egress) "to" else "from";
+        if (f.verdict.rule == 0) {
+            return self.a.print("{s} {s} {s} tcp/{d} {s} {d}.{d}.{d}.{d}", .{ dir, verb, leg, port, preposition, f.addr[0], f.addr[1], f.addr[2], f.addr[3] });
+        }
+        return self.a.print("{s} rule {d} {s} {s} tcp/{d} {s} {d}.{d}.{d}.{d}", .{ dir, f.verdict.rule, verb, leg, port, preposition, f.addr[0], f.addr[1], f.addr[2], f.addr[3] });
+    }
+
+    /// Hop from a subnet into its route table: the subnet's network ACL tested against every routed destination.
+    fn subnetHop(self: *Builder, s: Ec2.Subnet, paths: []const Path) !Hop {
+        const suffix = "; security groups on interfaces are not evaluated";
+        if (!self.input.available.nacls) return .{ .mark = .unknown, .reason = "Cannot read network ACLs with these credentials" };
+        const acl = self.naclFor(s.subnet_id) orelse return .{ .mark = .unknown, .reason = "No network ACL found for this subnet" };
+
+        const flow: nacl.Flow = if (self.direction == .outbound) .outbound else .inbound;
+        var ok: usize = 0;
+        var blocked: usize = 0;
+        var unknown: usize = 0;
+        var first_failure: ?nacl.Failure = null;
+        for (paths) |p| {
+            if (!p.probe or p.len == 0) continue;
+            if (p.nodes[0].hop.mark == .blocked) continue;
+            for (p.dests) |dest| switch (nacl.check(acl, dest, flow)) {
+                .ok => ok += 1,
+                .unknown => unknown += 1,
+                .blocked => |f| {
+                    blocked += 1;
+                    if (first_failure == null) first_failure = f;
+                },
+            };
+        }
+
+        const total = ok + blocked + unknown;
+        if (total == 0) return .{ .mark = null, .reason = try self.a.print("NACL {s}: nothing is routed outside the VPC to test", .{acl.network_acl_id}) };
+
+        if (blocked == 0 and unknown == 0) {
+            return .{ .mark = .ok, .reason = try self.a.print("NACL {s} allows tcp/{d} and the return traffic for all {d} routed destinations{s}", .{ acl.network_acl_id, nacl.service_port, total, suffix }) };
+        }
+        if (blocked == 0) {
+            return .{ .mark = .unknown, .reason = try self.a.print("NACL {s}: {d} routed destinations cannot be tested (IPv6 or prefix lists){s}", .{ acl.network_acl_id, unknown, suffix }) };
+        }
+        const detail = try self.describeFailure(first_failure.?);
+        const mark: Mark = if (ok == 0 and unknown == 0) .blocked else .partial;
+        return .{ .mark = mark, .reason = try self.a.print("NACL {s} {s} ({d} of {d} destinations blocked){s}", .{ acl.network_acl_id, detail, blocked, total, suffix }) };
+    }
+
     const ok_internet = "Reaches the public internet (public IP, NACL and security groups are not evaluated)";
 
     fn buildPath(self: *Builder, route_state: []const u8, target: []const u8, kind: TargetKind) !Path {
@@ -233,7 +303,10 @@ const Builder = struct {
         const blackhole_hop: Hop = .{ .mark = .blocked, .reason = "Route state is blackhole: the target no longer exists" };
 
         switch (kind) {
-            .local => path.push(.{ .text = "[local] VPC", .hop = .{ .mark = .ok, .reason = "Traffic stays inside the VPC" } }),
+            .local => {
+                path.probe = false;
+                path.push(.{ .text = "[local] VPC", .hop = .{ .mark = .ok, .reason = "Traffic stays inside the VPC" } });
+            },
             .igw => {
                 const g = self.findIgw(target);
                 const hop = if (blackhole) blackhole_hop else try self.igwHop(target);
@@ -472,16 +545,24 @@ pub fn build(allocator: Allocator, input: Input, direction: Direction) !Graph {
         std.mem.sortUnstable(Ec2.Subnet, g.subnets.items, {}, subnetLess);
 
         var paths: std.ArrayList(Path) = .empty;
+        var dest_lists: std.ArrayList(std.ArrayList([]const u8)) = .empty;
         var seen: std.ArrayList([]const u8) = .empty;
         for (g.rtb.routes) |r| {
             if (r.target.len == 0) continue;
-            const dup = for (seen.items) |t| {
-                if (std.mem.eql(u8, t, r.target)) break true;
-            } else false;
-            if (dup) continue;
+            const existing: ?usize = for (seen.items, 0..) |t, ti| {
+                if (std.mem.eql(u8, t, r.target)) break ti;
+            } else null;
+            if (existing) |ti| {
+                try dest_lists.items[ti].append(a, r.destination);
+                continue;
+            }
             try seen.append(a, r.target);
             try paths.append(a, try b.buildPath(r.state, r.target, classify(r.target)));
+            var dl: std.ArrayList([]const u8) = .empty;
+            try dl.append(a, r.destination);
+            try dest_lists.append(a, dl);
         }
+        for (paths.items, dest_lists.items) |*p, dl| p.dests = dl.items;
         // "local" is noise unless it is all there is.
         if (paths.items.len > 1) {
             var w: usize = 0;
@@ -510,20 +591,18 @@ pub fn build(allocator: Allocator, input: Input, direction: Direction) !Graph {
                 .ref = .{ .subnet = s.subnet_id },
             });
             const last = i == k - 1;
+            const nacl_hop = try b.subnetHop(s, paths.items);
             try cells.append(a, .{
                 .row = row + i,
                 .col = .subnet_hop,
                 .group = gi,
                 .path = null,
                 .is_hop = true,
-                .pre = if (k == 1) "──" else if (i == 0) "─┐" else if (last) "─┴" else "─┤",
+                // Bracket glyph joining the subnets of one route table.
+                .pre = if (k == 1) "─" else if (i == 0) "┐" else if (last) "┴" else "┤",
                 .body = last,
-                .selectable = last,
-                .mark = if (last and direction == .inbound) .unknown else null,
-                .reason = if (direction == .inbound)
-                    "Security groups on the subnet's interfaces and the subnet NACL are not evaluated yet"
-                else
-                    "Subnet uses this route table (subnet NACL is not evaluated yet)",
+                .mark = nacl_hop.mark,
+                .reason = nacl_hop.reason,
             });
         }
 
@@ -653,8 +732,8 @@ test "public subnet routes to an attached internet gateway" {
     // Two subnets share the table; local is dropped because another path exists.
     try std.testing.expectEqual(@as(usize, 2), g.rows);
     try std.testing.expectEqualStrings("subnet-a 1a", cellAt(g, 0, .subnet).?.text);
-    try std.testing.expectEqualStrings("─┐", cellAt(g, 0, .subnet_hop).?.pre);
-    try std.testing.expectEqualStrings("─┴", cellAt(g, 1, .subnet_hop).?.pre);
+    try std.testing.expectEqualStrings("┐", cellAt(g, 0, .subnet_hop).?.pre);
+    try std.testing.expectEqualStrings("┴", cellAt(g, 1, .subnet_hop).?.pre);
     try std.testing.expectEqualStrings("rtb-pub", cellAt(g, 1, .route_table).?.text);
     try std.testing.expectEqualStrings("[IGW] igw-1", cellAt(g, 1, .node0).?.text);
     try std.testing.expectEqual(Mark.ok, cellAt(g, 1, .hop0).?.mark.?);
@@ -711,4 +790,91 @@ test "unreadable describe call yields unknown" {
 
     try std.testing.expectEqual(Mark.unknown, cellAt(g, 0, .hop0).?.mark.?);
     try std.testing.expectEqual(Mark.unknown, cellAt(g, 0, .hop1).?.mark.?);
+}
+
+fn testNacl(id: []const u8, entries: []Ec2.NetworkAclEntry, assocs: []Ec2.NetworkAclAssociation) Ec2.NetworkAcl {
+    return .{
+        .allocator = std.testing.allocator,
+        .network_acl_id = @constCast(id),
+        .vpc_id = @constCast("vpc-1"),
+        .owner_id = t_empty,
+        .is_default = false,
+        .name = t_empty,
+        .tags = &.{},
+        .associations = assocs,
+        .entries = entries,
+    };
+}
+
+fn testEntry(rule: i32, egress: bool, allow: bool) Ec2.NetworkAclEntry {
+    return .{
+        .rule_number = rule,
+        .protocol = @constCast("-1"),
+        .allow = allow,
+        .egress = egress,
+        .cidr_block = @constCast("0.0.0.0/0"),
+        .ipv6_cidr_block = t_empty,
+        .port_from = null,
+        .port_to = null,
+    };
+}
+
+test "subnet hop reflects the subnet's network ACL" {
+    const subnets = [_]Ec2.Subnet{ testSubnet("subnet-open", "us-east-1a"), testSubnet("subnet-shut", "us-east-1b") };
+    var rtb_assocs = [_]Ec2.RouteTableAssociation{
+        .{ .association_id = t_empty, .main = true, .subnet_id = t_empty, .gateway_id = t_empty, .state = t_empty },
+    };
+    var routes = [_]Ec2.Route{testRoute("igw-1", "active")};
+    const rtbs = [_]Ec2.RouteTable{testRtb("rtb-main", &rtb_assocs, &routes)};
+    var igw_att = [_]Ec2.InternetGatewayAttachment{.{ .vpc_id = @constCast("vpc-1"), .state = @constCast("available") }};
+    const igws = [_]Ec2.InternetGateway{.{
+        .allocator = std.testing.allocator,
+        .internet_gateway_id = @constCast("igw-1"),
+        .owner_id = t_empty,
+        .name = t_empty,
+        .tags = &.{},
+        .attachments = &igw_att,
+    }};
+
+    var open_entries = [_]Ec2.NetworkAclEntry{ testEntry(100, true, true), testEntry(100, false, true) };
+    var open_assoc = [_]Ec2.NetworkAclAssociation{.{ .association_id = t_empty, .subnet_id = @constCast("subnet-open") }};
+    var shut_entries = [_]Ec2.NetworkAclEntry{ testEntry(100, true, false), testEntry(100, false, true) };
+    var shut_assoc = [_]Ec2.NetworkAclAssociation{.{ .association_id = t_empty, .subnet_id = @constCast("subnet-shut") }};
+    const nacls = [_]Ec2.NetworkAcl{
+        testNacl("acl-open", &open_entries, &open_assoc),
+        testNacl("acl-shut", &shut_entries, &shut_assoc),
+    };
+
+    var g = try build(std.testing.allocator, .{
+        .vpc_id = "vpc-1",
+        .subnets = &subnets,
+        .route_tables = &rtbs,
+        .igws = &igws,
+        .nacls = &nacls,
+    }, .outbound);
+    defer g.deinit();
+
+    // Subnets sort by name: subnet-open first.
+    try std.testing.expectEqual(Mark.ok, cellAt(g, 0, .subnet_hop).?.mark.?);
+    try std.testing.expectEqual(Mark.blocked, cellAt(g, 1, .subnet_hop).?.mark.?);
+    try std.testing.expect(std.mem.find(u8, cellAt(g, 1, .subnet_hop).?.reason, "egress rule 100 denies") != null);
+}
+
+test "unreadable network ACLs yield unknown at the subnet hop" {
+    const subnets = [_]Ec2.Subnet{testSubnet("subnet-a", "us-east-1a")};
+    var assocs = [_]Ec2.RouteTableAssociation{
+        .{ .association_id = t_empty, .main = true, .subnet_id = t_empty, .gateway_id = t_empty, .state = t_empty },
+    };
+    var routes = [_]Ec2.Route{testRoute("igw-1", "active")};
+    const rtbs = [_]Ec2.RouteTable{testRtb("rtb-main", &assocs, &routes)};
+
+    var g = try build(std.testing.allocator, .{
+        .vpc_id = "vpc-1",
+        .subnets = &subnets,
+        .route_tables = &rtbs,
+        .available = .{ .nacls = false },
+    }, .outbound);
+    defer g.deinit();
+
+    try std.testing.expectEqual(Mark.unknown, cellAt(g, 0, .subnet_hop).?.mark.?);
 }
