@@ -405,7 +405,7 @@ pub fn init(
 }
 
 pub fn breadcrumb(_: *SubnetsView) []const u8 {
-    return "Subnets";
+    return "VPC " ++ constants.SEP_ARROW ++ " Subnets";
 }
 
 pub fn deinit(self: *SubnetsView) void {

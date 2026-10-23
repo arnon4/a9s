@@ -635,7 +635,7 @@ pub const App = struct {
             .lambda_function, .lambda_function_content, .logs_log_streams, .logs_log_events => {},
             .secretsmanager_secret, .secretsmanager_secret_value, .secretsmanager_resource_policy => {},
             .cloudtrail_events, .cloudtrail_event_detail => {},
-            .vpc_vpc, .vpc_subnet, .vpc_dhcp_options => {},
+            .vpc_home, .vpc_vpc, .vpc_subnet, .vpc_dhcp_options => {},
             // IAM is global; no region refresh needed.
             .iam_home, .iam_roles, .iam_policies, .iam_role, .iam_role_policies, .iam_role_trust_policy, .iam_policy, .iam_policy_document => {},
             .iam_users, .iam_user, .iam_user_inline_policies, .iam_user_inline_policy_document => {},
