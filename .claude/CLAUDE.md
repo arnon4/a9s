@@ -26,6 +26,14 @@ a9s/
 └── e2e/tests/                  # @microsoft/tui-test JS tests; helpers.js has BIN + envWithCreds
 ```
 
+## Agents (enforced by hooks)
+
+Main agent MUST delegate. Hooks in `.claude/settings.json` deny direct calls.
+
+- `zig build` / `zig build test` / `zig build run` → **zig-builder** agent only.
+- `git add` / `git commit` / `git push` → **committer** agent only. Tell it which files to stage.
+- Broad staging (`-A`, `--all`, `.`), `--no-verify`, and force-push are always denied.
+
 ## Build
 
 Use the zig-builder agent to build and run the project.
