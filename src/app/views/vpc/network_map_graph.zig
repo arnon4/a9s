@@ -5,6 +5,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Ec2 = @import("../../../sdk/clients/ec2/client.zig");
 const nacl = @import("network_map_nacl.zig");
+const sgcheck = @import("network_map_sg.zig");
 
 pub const Direction = enum { outbound, inbound };
 
@@ -22,6 +23,8 @@ pub const Availability = struct {
     vgws: bool = true,
     eigws: bool = true,
     nacls: bool = true,
+    enis: bool = true,
+    sgs: bool = true,
 };
 
 pub const Input = struct {
@@ -36,6 +39,8 @@ pub const Input = struct {
     vgws: []const Ec2.VpnGateway = &.{},
     eigws: []const Ec2.EgressOnlyInternetGateway = &.{},
     nacls: []const Ec2.NetworkAcl = &.{},
+    enis: []const Ec2.NetworkInterface = &.{},
+    sgs: []const Ec2.SecurityGroup = &.{},
     available: Availability = .{},
 };
 
@@ -46,11 +51,15 @@ pub const Ref = union(enum) {
     route_table: []const u8,
     igw: []const u8,
     nat: []const u8,
+    eni: []const u8,
 };
 
 /// Grid columns, left to right.
-pub const Col = enum(u8) { subnet, subnet_hop, route_table, hop0, node0, hop1, node1, hop2, node2 };
-pub const col_count = 9;
+pub const Col = enum(u8) { eni, eni_hop, subnet, subnet_hop, route_table, hop0, node0, hop1, node1, hop2, node2 };
+pub const col_count = 11;
+
+/// Interfaces drawn per subnet; the rest are summarised in a "+N more" row.
+pub const max_enis_per_subnet = 6;
 
 pub const Cell = struct {
     row: usize,
@@ -295,6 +304,78 @@ const Builder = struct {
         return .{ .mark = mark, .reason = try self.a.print("NACL {s} {s} ({d} of {d} destinations blocked){s}", .{ acl.network_acl_id, detail, blocked, total, suffix }) };
     }
 
+    /// Interfaces of `subnet_id` worth drawing: NAT gateway interfaces are shown as NAT targets instead.
+    /// Interfaces of the user's own resources come first, then by name.
+    fn enisFor(self: *Builder, subnet_id: []const u8) ![]const Ec2.NetworkInterface {
+        var list: std.ArrayList(Ec2.NetworkInterface) = .empty;
+        for (self.input.enis) |e| {
+            if (!std.mem.eql(u8, e.subnet_id, subnet_id)) continue;
+            if (std.mem.eql(u8, e.interface_type, "natGateway")) continue;
+            try list.append(self.a, e);
+        }
+        std.mem.sortUnstable(Ec2.NetworkInterface, list.items, {}, eniLess);
+        return list.items;
+    }
+
+    fn joinGroupIds(self: *Builder, groups: []const Ec2.SecurityGroup) ![]const u8 {
+        var out: std.ArrayList(u8) = .empty;
+        for (groups, 0..) |g, i| {
+            if (i > 0) try out.appendSlice(self.a, ", ");
+            try out.appendSlice(self.a, g.group_id);
+        }
+        return out.items;
+    }
+
+    /// Hop from an interface into its subnet: its security groups tested against every routed destination.
+    fn eniHop(self: *Builder, e: Ec2.NetworkInterface, paths: []const Path) !Hop {
+        // Nothing is attached, so nothing filters the interface (AWS-managed interfaces have none).
+        if (e.groups.len == 0) return .{ .mark = .ok, .reason = "No security groups are attached, so nothing filters this interface" };
+        if (!self.input.available.sgs) return .{ .mark = .unknown, .reason = "Cannot read security groups with these credentials" };
+
+        var resolved: std.ArrayList(Ec2.SecurityGroup) = .empty;
+        for (e.groups) |g| {
+            for (self.input.sgs) |sg| {
+                if (std.mem.eql(u8, sg.group_id, g.group_id)) {
+                    try resolved.append(self.a, sg);
+                    break;
+                }
+            }
+        }
+        if (resolved.items.len == 0) return .{ .mark = .unknown, .reason = "The security groups of this interface were not found" };
+        const ids = try self.joinGroupIds(resolved.items);
+
+        const flow: nacl.Flow = if (self.direction == .outbound) .outbound else .inbound;
+        const preposition: []const u8 = if (self.direction == .outbound) "to" else "from";
+        var ok: usize = 0;
+        var blocked: usize = 0;
+        var unknown: usize = 0;
+        var first_blocked: ?[4]u8 = null;
+        for (paths) |p| {
+            if (!p.probe or p.len == 0) continue;
+            if (p.nodes[0].hop.mark == .blocked) continue;
+            for (p.dests) |dest| switch (sgcheck.check(resolved.items, flow, dest)) {
+                .ok => ok += 1,
+                .unknown => unknown += 1,
+                .blocked => |addr| {
+                    blocked += 1;
+                    if (first_blocked == null) first_blocked = addr;
+                },
+            };
+        }
+
+        const total = ok + blocked + unknown;
+        if (total == 0) return .{ .mark = null, .reason = try self.a.print("Security groups {s}: nothing is routed outside the VPC to test", .{ids}) };
+        if (blocked == 0 and unknown == 0) {
+            return .{ .mark = .ok, .reason = try self.a.print("Security groups {s} allow tcp/{d} {s} all {d} routed destinations (stateful, so replies are allowed)", .{ ids, nacl.service_port, preposition, total }) };
+        }
+        if (blocked == 0) {
+            return .{ .mark = .unknown, .reason = try self.a.print("Security groups {s}: {d} routed destinations are only allowed through prefix lists or group references, which cannot be tested", .{ ids, unknown }) };
+        }
+        const a4 = first_blocked.?;
+        const mark: Mark = if (ok == 0 and unknown == 0) .blocked else .partial;
+        return .{ .mark = mark, .reason = try self.a.print("No rule in {s} allows tcp/{d} {s} {d}.{d}.{d}.{d} ({d} of {d} destinations blocked)", .{ ids, nacl.service_port, preposition, a4[0], a4[1], a4[2], a4[3], blocked, total }) };
+    }
+
     const ok_internet = "Reaches the public internet (public IP, NACL and security groups are not evaluated)";
 
     fn buildPath(self: *Builder, route_state: []const u8, target: []const u8, kind: TargetKind) !Path {
@@ -472,7 +553,30 @@ const Builder = struct {
                 path.push(.{ .text = try self.label(.eigw, target, if (found) |g| g.name else ""), .hop = hop });
                 path.push(.{ .text = "Internet (IPv6)", .hop = .{ .mark = .ok, .reason = "Reaches the internet over IPv6, outbound only" } });
             },
-            .eni, .instance, .cagw, .lgw, .other => {
+            .eni => {
+                const found: ?Ec2.NetworkInterface = for (self.input.enis) |e| {
+                    if (std.mem.eql(u8, e.id, target)) break e;
+                } else null;
+                var hop: Hop = undefined;
+                if (blackhole) {
+                    hop = blackhole_hop;
+                } else if (!self.input.available.enis) {
+                    hop = .{ .mark = .unknown, .reason = "Cannot read network interfaces with these credentials" };
+                } else if (found) |e| {
+                    hop = if (std.mem.eql(u8, e.status, "in-use"))
+                        .{ .mark = .ok, .reason = try self.a.print("Network interface {s} is in use{s}{s}", .{
+                            target,
+                            if (e.attachment != null and e.attachment.?.instance_id.len > 0) " by " else "",
+                            if (e.attachment) |at| at.instance_id else "",
+                        }) }
+                    else
+                        .{ .mark = .blocked, .reason = try self.a.print("Network interface {s} status: {s}", .{ target, e.status }) };
+                } else {
+                    hop = .{ .mark = .blocked, .reason = try self.a.print("Network interface {s} was not found in this VPC", .{target}) };
+                }
+                path.push(.{ .text = try self.label(.eni, target, if (found) |e| e.name else ""), .ref = .{ .eni = target }, .hop = hop });
+            },
+            .instance, .cagw, .lgw, .other => {
                 const hop: Hop = if (blackhole) blackhole_hop else .{
                     .mark = .ok,
                     .reason = try self.a.print("Route is active; {s} is not inspected further", .{target}),
@@ -502,6 +606,15 @@ fn subnetName(s: Ec2.Subnet) []const u8 {
 
 fn rtbName(t: Ec2.RouteTable) []const u8 {
     return if (t.name.len > 0) t.name else t.route_table_id;
+}
+
+fn eniName(e: Ec2.NetworkInterface) []const u8 {
+    return if (e.name.len > 0) e.name else e.id;
+}
+
+fn eniLess(_: void, x: Ec2.NetworkInterface, y: Ec2.NetworkInterface) bool {
+    if (x.requester_managed != y.requester_managed) return !x.requester_managed;
+    return std.mem.lessThan(u8, eniName(x), eniName(y));
 }
 
 fn subnetLess(_: void, x: Ec2.Subnet, y: Ec2.Subnet) bool {
@@ -580,12 +693,89 @@ pub fn build(allocator: Allocator, input: Input, direction: Direction) !Graph {
 
         const k = g.subnets.items.len;
         const m = @max(paths.items.len, 1);
-        const rtb_row = row + k - 1;
+
+        // Each subnet owns a block of rows: one per drawn interface (plus a "+N more" row), at least one.
+        // The subnet sits on the block's last row, where the interfaces' bracket meets it.
+        const subnet_enis = try a.alloc([]const Ec2.NetworkInterface, k);
+        const block_start = try a.alloc(usize, k);
+        const block_rows = try a.alloc(usize, k);
+        var subnet_rows: usize = 0;
+        for (g.subnets.items, 0..) |s, i| {
+            subnet_enis[i] = try b.enisFor(s.subnet_id);
+            const shown = @min(subnet_enis[i].len, max_enis_per_subnet);
+            const extra = subnet_enis[i].len - shown;
+            block_start[i] = row + subnet_rows;
+            block_rows[i] = @max(shown + @intFromBool(extra > 0), 1);
+            subnet_rows += block_rows[i];
+        }
+        const rtb_row = row + subnet_rows - 1;
+        const first_subnet_row = block_start[0] + block_rows[0] - 1;
 
         for (g.subnets.items, 0..) |s, i| {
             const az = s.availability_zone;
+            const srow = block_start[i] + block_rows[i] - 1;
+
+            // Interfaces of this subnet, joined by a bracket into it.
+            const shown = @min(subnet_enis[i].len, max_enis_per_subnet);
+            const extra = subnet_enis[i].len - shown;
+            const eni_rows = shown + @intFromBool(extra > 0);
+            for (0..eni_rows) |j| {
+                const erow = block_start[i] + j;
+                const glyph: []const u8 = if (eni_rows == 1) "─" else if (j == 0) "┐" else if (j == eni_rows - 1) "┴" else "┤";
+                if (j < shown) {
+                    const e = subnet_enis[i][j];
+                    const sg_hop = try b.eniHop(e, paths.items);
+                    try cells.append(a, .{
+                        .row = erow,
+                        .col = .eni,
+                        .group = gi,
+                        .path = null,
+                        .text = try b.label(.eni, e.id, e.name),
+                        .reason = try a.print("Network interface {s} ({s}{s}{s}), private IP {s}", .{
+                            e.id,
+                            e.status,
+                            if (e.interface_type.len > 0) ", " else "",
+                            e.interface_type,
+                            if (e.private_ip.len > 0) e.private_ip else "-",
+                        }),
+                        .ref = .{ .eni = e.id },
+                    });
+                    try cells.append(a, .{
+                        .row = erow,
+                        .col = .eni_hop,
+                        .group = gi,
+                        .path = null,
+                        .is_hop = true,
+                        .pre = glyph,
+                        .body = j == eni_rows - 1,
+                        .mark = sg_hop.mark,
+                        .reason = sg_hop.reason,
+                    });
+                } else {
+                    try cells.append(a, .{
+                        .row = erow,
+                        .col = .eni,
+                        .group = gi,
+                        .path = null,
+                        .text = try a.print("+{d} more", .{extra}),
+                        .selectable = false,
+                        .reason = try a.print("{d} more interfaces in this subnet; see Network Interfaces in the VPC menu", .{extra}),
+                    });
+                    try cells.append(a, .{
+                        .row = erow,
+                        .col = .eni_hop,
+                        .group = gi,
+                        .path = null,
+                        .is_hop = true,
+                        .pre = glyph,
+                        .body = true,
+                        .selectable = false,
+                    });
+                }
+            }
+
             try cells.append(a, .{
-                .row = row + i,
+                .row = srow,
                 .col = .subnet,
                 .group = gi,
                 .path = null,
@@ -596,7 +786,7 @@ pub fn build(allocator: Allocator, input: Input, direction: Direction) !Graph {
             const last = i == k - 1;
             const nacl_hop = try b.subnetHop(s, paths.items);
             try cells.append(a, .{
-                .row = row + i,
+                .row = srow,
                 .col = .subnet_hop,
                 .group = gi,
                 .path = null,
@@ -606,6 +796,25 @@ pub fn build(allocator: Allocator, input: Input, direction: Direction) !Graph {
                 .body = last,
                 .mark = nacl_hop.mark,
                 .reason = nacl_hop.reason,
+            });
+        }
+
+        // The bracket continues through the rows of interfaces that sit between two subnets.
+        var vr = first_subnet_row + 1;
+        while (vr < rtb_row) : (vr += 1) {
+            const is_subnet_row = for (0..k) |i| {
+                if (block_start[i] + block_rows[i] - 1 == vr) break true;
+            } else false;
+            if (is_subnet_row) continue;
+            try cells.append(a, .{
+                .row = vr,
+                .col = .subnet_hop,
+                .group = gi,
+                .path = null,
+                .is_hop = true,
+                .pre = "│",
+                .body = false,
+                .selectable = false,
             });
         }
 
@@ -648,7 +857,7 @@ pub fn build(allocator: Allocator, input: Input, direction: Direction) !Graph {
             }
         }
 
-        row += k - 1 + m;
+        row += subnet_rows - 1 + m;
     }
 
     return .{
@@ -915,4 +1124,239 @@ test "NAT node links to its detail view and explains a failed gateway" {
     const hop = cellAt(g, 0, .hop0).?;
     try std.testing.expectEqual(Mark.blocked, hop.mark.?);
     try std.testing.expect(std.mem.find(u8, hop.reason, "no internet gateway attached") != null);
+}
+
+fn testEni(id: []const u8, subnet_id: []const u8, managed: bool, status: []const u8, groups: []Ec2.NetworkInterfaceGroup) Ec2.NetworkInterface {
+    return .{
+        .allocator = std.testing.allocator,
+        .id = @constCast(id),
+        .subnet_id = @constCast(subnet_id),
+        .vpc_id = @constCast("vpc-1"),
+        .availability_zone = t_empty,
+        .description = t_empty,
+        .owner_id = t_empty,
+        .requester_id = t_empty,
+        .requester_managed = managed,
+        .status = @constCast(status),
+        .mac_address = t_empty,
+        .private_ip = @constCast("10.0.0.5"),
+        .private_dns_name = t_empty,
+        .public_ip = t_empty,
+        .allocation_id = t_empty,
+        .source_dest_check = true,
+        .interface_type = @constCast("interface"),
+        .name = t_empty,
+        .tags = &.{},
+        .groups = groups,
+        .attachment = null,
+        .private_ips = &.{},
+        .ipv6_addresses = &.{},
+    };
+}
+
+fn testSg(id: []const u8, egress: []Ec2.SecurityGroupRule) Ec2.SecurityGroup {
+    return .{
+        .allocator = std.testing.allocator,
+        .group_id = @constCast(id),
+        .group_name = @constCast("sg"),
+        .description = t_empty,
+        .vpc_id = @constCast("vpc-1"),
+        .owner_id = t_empty,
+        .arn = t_empty,
+        .name = t_empty,
+        .tags = &.{},
+        .ingress = &.{},
+        .egress = egress,
+    };
+}
+
+fn igwFixture(att: []Ec2.InternetGatewayAttachment) [1]Ec2.InternetGateway {
+    return .{.{
+        .allocator = std.testing.allocator,
+        .internet_gateway_id = @constCast("igw-1"),
+        .owner_id = t_empty,
+        .name = t_empty,
+        .tags = &.{},
+        .attachments = att,
+    }};
+}
+
+test "interfaces appear left of their subnet with a security group verdict" {
+    const subnets = [_]Ec2.Subnet{testSubnet("subnet-a", "us-east-1a")};
+    var assocs = [_]Ec2.RouteTableAssociation{
+        .{ .association_id = t_empty, .main = true, .subnet_id = t_empty, .gateway_id = t_empty, .state = t_empty },
+    };
+    var routes = [_]Ec2.Route{testRoute("igw-1", "active")};
+    const rtbs = [_]Ec2.RouteTable{testRtb("rtb-main", &assocs, &routes)};
+    var att = [_]Ec2.InternetGatewayAttachment{.{ .vpc_id = @constCast("vpc-1"), .state = @constCast("available") }};
+    const igws = igwFixture(&att);
+
+    var open = [_]Ec2.SecurityGroupRange{.{ .cidr = @constCast("0.0.0.0/0"), .description = t_empty }};
+    var egress_open = [_]Ec2.SecurityGroupRule{.{ .protocol = @constCast("-1"), .from_port = null, .to_port = null, .groups = &.{}, .ipv4_ranges = &open, .ipv6_ranges = &.{}, .prefix_lists = &.{} }};
+    const sgs = [_]Ec2.SecurityGroup{testSg("sg-open", &egress_open)};
+    var group_refs = [_]Ec2.NetworkInterfaceGroup{.{ .group_id = @constCast("sg-open"), .group_name = @constCast("sg") }};
+    const enis = [_]Ec2.NetworkInterface{
+        testEni("eni-managed", "subnet-a", true, "in-use", &group_refs),
+        testEni("eni-user", "subnet-a", false, "in-use", &group_refs),
+        testEni("eni-other-subnet", "subnet-z", false, "in-use", &group_refs),
+    };
+
+    var g = try build(std.testing.allocator, .{
+        .vpc_id = "vpc-1",
+        .subnets = &subnets,
+        .route_tables = &rtbs,
+        .igws = &igws,
+        .enis = &enis,
+        .sgs = &sgs,
+    }, .outbound);
+    defer g.deinit();
+
+    // Two interfaces stack above the subnet, which sits on the last row of the block.
+    try std.testing.expectEqual(@as(usize, 2), g.rows);
+    try std.testing.expectEqualStrings("[ENI] eni-user", cellAt(g, 0, .eni).?.text);
+    try std.testing.expectEqualStrings("[ENI] eni-managed", cellAt(g, 1, .eni).?.text);
+    try std.testing.expectEqualStrings("eni-user", cellAt(g, 0, .eni).?.ref.eni);
+    try std.testing.expectEqualStrings("┐", cellAt(g, 0, .eni_hop).?.pre);
+    try std.testing.expectEqualStrings("┴", cellAt(g, 1, .eni_hop).?.pre);
+    try std.testing.expectEqual(Mark.ok, cellAt(g, 0, .eni_hop).?.mark.?);
+    try std.testing.expectEqualStrings("subnet-a 1a", cellAt(g, 1, .subnet).?.text);
+    try std.testing.expectEqualStrings("rtb-main (main)", cellAt(g, 1, .route_table).?.text);
+}
+
+test "a security group without a matching rule blocks only that interface" {
+    const subnets = [_]Ec2.Subnet{testSubnet("subnet-a", "us-east-1a")};
+    var assocs = [_]Ec2.RouteTableAssociation{
+        .{ .association_id = t_empty, .main = true, .subnet_id = t_empty, .gateway_id = t_empty, .state = t_empty },
+    };
+    var routes = [_]Ec2.Route{testRoute("igw-1", "active")};
+    const rtbs = [_]Ec2.RouteTable{testRtb("rtb-main", &assocs, &routes)};
+    var att = [_]Ec2.InternetGatewayAttachment{.{ .vpc_id = @constCast("vpc-1"), .state = @constCast("available") }};
+    const igws = igwFixture(&att);
+
+    var internal = [_]Ec2.SecurityGroupRange{.{ .cidr = @constCast("10.0.0.0/8"), .description = t_empty }};
+    var egress_internal = [_]Ec2.SecurityGroupRule{.{ .protocol = @constCast("-1"), .from_port = null, .to_port = null, .groups = &.{}, .ipv4_ranges = &internal, .ipv6_ranges = &.{}, .prefix_lists = &.{} }};
+    const sgs = [_]Ec2.SecurityGroup{testSg("sg-internal", &egress_internal)};
+    var group_refs = [_]Ec2.NetworkInterfaceGroup{.{ .group_id = @constCast("sg-internal"), .group_name = @constCast("sg") }};
+    const enis = [_]Ec2.NetworkInterface{testEni("eni-1", "subnet-a", false, "in-use", &group_refs)};
+
+    var g = try build(std.testing.allocator, .{ .vpc_id = "vpc-1", .subnets = &subnets, .route_tables = &rtbs, .igws = &igws, .enis = &enis, .sgs = &sgs }, .outbound);
+    defer g.deinit();
+
+    const hop = cellAt(g, 0, .eni_hop).?;
+    try std.testing.expectEqual(Mark.blocked, hop.mark.?);
+    try std.testing.expect(std.mem.find(u8, hop.reason, "sg-internal") != null);
+    try std.testing.expect(std.mem.find(u8, hop.reason, "8.8.8.8") != null);
+}
+
+test "interfaces without readable security groups are unknown" {
+    const subnets = [_]Ec2.Subnet{testSubnet("subnet-a", "us-east-1a")};
+    var assocs = [_]Ec2.RouteTableAssociation{
+        .{ .association_id = t_empty, .main = true, .subnet_id = t_empty, .gateway_id = t_empty, .state = t_empty },
+    };
+    var routes = [_]Ec2.Route{testRoute("igw-1", "active")};
+    const rtbs = [_]Ec2.RouteTable{testRtb("rtb-main", &assocs, &routes)};
+    var group_refs = [_]Ec2.NetworkInterfaceGroup{.{ .group_id = @constCast("sg-1"), .group_name = @constCast("sg") }};
+    const enis = [_]Ec2.NetworkInterface{testEni("eni-1", "subnet-a", false, "in-use", &group_refs)};
+
+    var g = try build(std.testing.allocator, .{
+        .vpc_id = "vpc-1",
+        .subnets = &subnets,
+        .route_tables = &rtbs,
+        .enis = &enis,
+        .available = .{ .sgs = false },
+    }, .outbound);
+    defer g.deinit();
+
+    try std.testing.expectEqual(Mark.unknown, cellAt(g, 0, .eni_hop).?.mark.?);
+}
+
+test "interfaces beyond the cap collapse into a non-selectable summary row" {
+    const subnets = [_]Ec2.Subnet{testSubnet("subnet-a", "us-east-1a")};
+    var assocs = [_]Ec2.RouteTableAssociation{
+        .{ .association_id = t_empty, .main = true, .subnet_id = t_empty, .gateway_id = t_empty, .state = t_empty },
+    };
+    var routes = [_]Ec2.Route{testRoute("local", "active")};
+    const rtbs = [_]Ec2.RouteTable{testRtb("rtb-main", &assocs, &routes)};
+    var enis: [max_enis_per_subnet + 3]Ec2.NetworkInterface = undefined;
+    const ids = [_][]const u8{ "eni-1", "eni-2", "eni-3", "eni-4", "eni-5", "eni-6", "eni-7", "eni-8", "eni-9" };
+    for (&enis, 0..) |*e, i| e.* = testEni(ids[i], "subnet-a", false, "in-use", &.{});
+
+    var g = try build(std.testing.allocator, .{ .vpc_id = "vpc-1", .subnets = &subnets, .route_tables = &rtbs, .enis = &enis }, .outbound);
+    defer g.deinit();
+
+    // Six interfaces, one summary row; the subnet shares the summary row.
+    try std.testing.expectEqual(@as(usize, max_enis_per_subnet + 1), g.rows);
+    const more = cellAt(g, max_enis_per_subnet, .eni).?;
+    try std.testing.expectEqualStrings("+3 more", more.text);
+    try std.testing.expect(!more.selectable);
+    try std.testing.expectEqualStrings("subnet-a 1a", cellAt(g, max_enis_per_subnet, .subnet).?.text);
+}
+
+test "brackets continue through interface rows between two subnets" {
+    const subnets = [_]Ec2.Subnet{ testSubnet("subnet-a", "us-east-1a"), testSubnet("subnet-b", "us-east-1b") };
+    var assocs = [_]Ec2.RouteTableAssociation{
+        .{ .association_id = t_empty, .main = true, .subnet_id = t_empty, .gateway_id = t_empty, .state = t_empty },
+    };
+    var routes = [_]Ec2.Route{testRoute("local", "active")};
+    const rtbs = [_]Ec2.RouteTable{testRtb("rtb-main", &assocs, &routes)};
+    // subnet-b (second by name) has two interfaces, so rows 1 and 2 hold them and subnet-b sits on row 2.
+    const enis = [_]Ec2.NetworkInterface{
+        testEni("eni-1", "subnet-b", false, "in-use", &.{}),
+        testEni("eni-2", "subnet-b", false, "in-use", &.{}),
+    };
+
+    var g = try build(std.testing.allocator, .{ .vpc_id = "vpc-1", .subnets = &subnets, .route_tables = &rtbs, .enis = &enis }, .outbound);
+    defer g.deinit();
+
+    try std.testing.expectEqual(@as(usize, 3), g.rows);
+    try std.testing.expectEqualStrings("subnet-a 1a", cellAt(g, 0, .subnet).?.text);
+    try std.testing.expectEqualStrings("subnet-b 1b", cellAt(g, 2, .subnet).?.text);
+    // Row 1 holds only an interface; the subnet bracket passes through it.
+    const through = cellAt(g, 1, .subnet_hop).?;
+    try std.testing.expectEqualStrings("│", through.pre);
+    try std.testing.expect(!through.selectable);
+}
+
+test "a route targeting an interface resolves its status" {
+    const subnets = [_]Ec2.Subnet{testSubnet("subnet-a", "us-east-1a")};
+    var assocs = [_]Ec2.RouteTableAssociation{
+        .{ .association_id = t_empty, .main = true, .subnet_id = t_empty, .gateway_id = t_empty, .state = t_empty },
+    };
+    var routes = [_]Ec2.Route{testRoute("eni-appliance", "active")};
+    const rtbs = [_]Ec2.RouteTable{testRtb("rtb-main", &assocs, &routes)};
+    const enis = [_]Ec2.NetworkInterface{testEni("eni-appliance", "subnet-a", false, "available", &.{})};
+
+    var g = try build(std.testing.allocator, .{ .vpc_id = "vpc-1", .subnets = &subnets, .route_tables = &rtbs, .enis = &enis }, .outbound);
+    defer g.deinit();
+
+    // The appliance interface also appears in its subnet; the route target is the node right of the route table.
+    const node = cellAt(g, g.rows - 1, .node0).?;
+    try std.testing.expectEqualStrings("eni-appliance", node.ref.eni);
+    const hop = cellAt(g, g.rows - 1, .hop0).?;
+    try std.testing.expectEqual(Mark.blocked, hop.mark.?);
+    try std.testing.expect(std.mem.find(u8, hop.reason, "status: available") != null);
+}
+
+test "an interface without security groups is not filtered" {
+    const subnets = [_]Ec2.Subnet{testSubnet("subnet-a", "us-east-1a")};
+    var assocs = [_]Ec2.RouteTableAssociation{
+        .{ .association_id = t_empty, .main = true, .subnet_id = t_empty, .gateway_id = t_empty, .state = t_empty },
+    };
+    var routes = [_]Ec2.Route{testRoute("igw-1", "active")};
+    const rtbs = [_]Ec2.RouteTable{testRtb("rtb-main", &assocs, &routes)};
+    const enis = [_]Ec2.NetworkInterface{testEni("eni-1", "subnet-a", true, "in-use", &.{})};
+
+    // Passes even when security groups cannot be read: there is nothing to look up.
+    var g = try build(std.testing.allocator, .{
+        .vpc_id = "vpc-1",
+        .subnets = &subnets,
+        .route_tables = &rtbs,
+        .enis = &enis,
+        .available = .{ .sgs = false },
+    }, .outbound);
+    defer g.deinit();
+
+    const hop = cellAt(g, 0, .eni_hop).?;
+    try std.testing.expectEqual(Mark.ok, hop.mark.?);
+    try std.testing.expect(std.mem.find(u8, hop.reason, "nothing filters") != null);
 }

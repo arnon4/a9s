@@ -20,6 +20,7 @@ const SubnetView = @import("subnet.zig");
 const RouteTableView = @import("route_table.zig");
 const InternetGatewayView = @import("internet_gateway.zig");
 const NatGatewayView = @import("nat_gateway.zig");
+const NetworkInterfaceView = @import("network_interface.zig");
 
 const NetworkMapView = @This();
 pub const name: []const u8 = "Network Map";
@@ -49,6 +50,10 @@ const FetchCtx = struct {
     vgws: ?Ec2.DescribeVpnGatewaysResult = null,
     eigws: ?Ec2.DescribeEgressOnlyInternetGatewaysResult = null,
     nacls: ?Ec2.DescribeNetworkAclsResult = null,
+    /// Every interface of the VPC, all pages.
+    enis: ?Ec2.DescribeNetworkInterfacesResult = null,
+    /// Security groups of the VPC, all pages; only fetched when there are interfaces.
+    sgs: ?Ec2.DescribeSecurityGroupsResult = null,
     available: graph_mod.Availability = .{},
     err: ?anyerror = null,
     done: std.atomic.Value(bool) = .init(false),
@@ -93,6 +98,12 @@ fn fetchThread(ctx: *FetchCtx) void {
     };
 
     ctx.nacls = optional(client.describeNetworkAcls(.{ .params = .{ .filters = &by_vpc } }), &ctx.available.nacls);
+    ctx.enis = optional(client.describeAllNetworkInterfaces(.{ .params = .{ .filters = &by_vpc } }), &ctx.available.enis);
+    if (ctx.enis) |r| {
+        if (r.network_interfaces.len > 0) {
+            ctx.sgs = optional(client.describeAllSecurityGroups(.{ .params = .{ .filters = &by_vpc } }), &ctx.available.sgs);
+        }
+    }
 
     // Only ask about target types that routes actually use.
     var need_igw = false;
@@ -225,6 +236,8 @@ pub fn deinit(self: *NetworkMapView) void {
     deinitOptional(c.vgws);
     deinitOptional(c.eigws);
     deinitOptional(c.nacls);
+    deinitOptional(c.enis);
+    deinitOptional(c.sgs);
     const alloc = c.allocator;
     alloc.free(c.region);
     alloc.free(c.vpc_id);
@@ -273,6 +286,8 @@ fn rebuild(self: *NetworkMapView) !void {
         .vgws = resultSlice("vpn_gateways", c.vgws),
         .eigws = resultSlice("egress_only_internet_gateways", c.eigws),
         .nacls = resultSlice("network_acls", c.nacls),
+        .enis = resultSlice("network_interfaces", c.enis),
+        .sgs = resultSlice("security_groups", c.sgs),
         .available = c.available,
     };
 
@@ -288,7 +303,7 @@ fn rebuild(self: *NetworkMapView) !void {
     for (g.cells, 0..) |cell, i| {
         grid[cell.row * graph_mod.col_count + @backingInt(cell.col)] = @intCast(i);
         const ci = @backingInt(cell.col);
-        const wd = if (cell.col == .subnet_hop) subnet_hop_width else if (cell.is_hop) hop_width else textCols(cell.text) + 1;
+        const wd = if (cell.col == .subnet_hop or cell.col == .eni_hop) subnet_hop_width else if (cell.is_hop) hop_width else textCols(cell.text) + 1;
         widths[ci] = @max(widths[ci], wd);
     }
 
@@ -389,6 +404,13 @@ fn rtbDisplay(self: *const NetworkMapView, id: []const u8) []const u8 {
     return id;
 }
 
+fn eniDisplay(self: *const NetworkMapView, id: []const u8) []const u8 {
+    if (self.ctx.enis) |r| for (r.network_interfaces) |e| {
+        if (std.mem.eql(u8, e.id, id)) return if (e.name.len > 0) e.name else id;
+    };
+    return id;
+}
+
 fn natDisplay(self: *const NetworkMapView, id: []const u8) []const u8 {
     if (self.ctx.nats) |r| for (r.nat_gateways) |g| {
         if (std.mem.eql(u8, g.id, id)) return if (g.name.len > 0) g.name else id;
@@ -435,6 +457,10 @@ pub fn handleEvent(self: *NetworkMapView, event: Event, ctx: ViewContext) !Actio
                     .route_table => |id| {
                         const v = try RouteTableView.init(ctx.allocator, ctx.io, credentials, region, id, self.rtbDisplay(id), self.fg_color, self.bg_color, self.breadcrumb());
                         return .{ .push = .{ .vpc_route_table = v } };
+                    },
+                    .eni => |id| {
+                        const v = try NetworkInterfaceView.init(ctx.allocator, ctx.io, credentials, region, id, self.eniDisplay(id), self.fg_color, self.bg_color, self.breadcrumb());
+                        return .{ .push = .{ .vpc_network_interface = v } };
                     },
                     .nat => |id| {
                         const v = try NatGatewayView.init(ctx.allocator, ctx.io, credentials, region, id, self.natDisplay(id), self.fg_color, self.bg_color, self.breadcrumb());
@@ -483,7 +509,10 @@ const Line = struct {
         for (0..n) |_| try self.put(" ");
     }
 
+    /// Pads to the end of the line. Padding is never part of the clipped-away left side, so it
+    /// ignores whatever is left of `skip`; otherwise a scrolled row ends short of the frame.
     fn fill(self: *Line) !void {
+        self.skip = 0;
         try self.writer.writeAll(terminal.RESET);
         try self.spaces(self.left);
     }
@@ -530,7 +559,7 @@ fn writeCell(self: *NetworkMapView, line: *Line, cell: Cell, selected: bool, sel
         return;
     }
 
-    if (cell.col == .subnet_hop) return self.writeSubnetHop(line, cell, selected, faded);
+    if (cell.col == .subnet_hop or cell.col == .eni_hop) return self.writeSubnetHop(line, cell, selected, faded);
 
     // Hop: branch glyphs, then the arrow with its mark.
     try line.raw(self.fg_color);
@@ -572,6 +601,16 @@ fn writeCell(self: *NetworkMapView, line: *Line, cell: Cell, selected: bool, sel
 /// Subnet -> route table hop: `─✓─┴▶` (outbound) or `◀✓─┴─` (inbound); the mark is the subnet's NACL verdict.
 fn writeSubnetHop(self: *NetworkMapView, line: *Line, cell: Cell, selected: bool, faded: bool) !void {
     const inbound = self.direction == .inbound;
+    if (std.mem.eql(u8, cell.pre, "│")) {
+        // A bracket continuing past interface rows: only the vertical line is drawn.
+        try line.raw(self.fg_color);
+        if (faded) try line.raw(terminal.DIM);
+        try line.spaces(3);
+        try line.put("│");
+        try line.raw(terminal.RESET);
+        try line.spaces(2);
+        return;
+    }
     try line.raw(self.fg_color);
     if (faded) try line.raw(terminal.DIM);
     try line.put(if (inbound) "◀" else "─");
@@ -604,6 +643,12 @@ fn writeSubnetHop(self: *NetworkMapView, line: *Line, cell: Cell, selected: bool
 fn detailMark(self: *NetworkMapView, g: Graph) ?Mark {
     const cell = g.cells[self.sel];
     if (cell.is_hop or cell.col == .subnet or cell.col == .route_table) return cell.mark;
+    if (cell.col == .eni) {
+        // An interface's verdict is the hop from it into its subnet.
+        const eni_hop_col: usize = @backingInt(graph_mod.Col.eni_hop);
+        if (self.grid[cell.row * graph_mod.col_count + eni_hop_col]) |hi| return g.cells[hi].mark;
+        return null;
+    }
     const hop_col = @backingInt(cell.col) - 1;
     if (self.grid[cell.row * graph_mod.col_count + hop_col]) |hi| return g.cells[hi].mark;
     return null;
@@ -810,6 +855,25 @@ test "countLines is at least one and counts wrapped lines" {
     try std.testing.expectEqual(@as(usize, 1), countLines("", 10));
     try std.testing.expectEqual(@as(usize, 1), countLines("short", 10));
     try std.testing.expectEqual(@as(usize, 3), countLines("aaa bbb ccc", 3));
+}
+
+test "fill pads a scrolled row to the full width" {
+    var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
+    // A blank row on a view scrolled 5 columns right still needs all 10 columns of padding.
+    var line: Line = .{ .writer = &aw.writer, .skip = 5, .left = 10 };
+    try line.fill();
+    const out = aw.writer.buffer[0..aw.writer.end];
+    try std.testing.expectEqual(@as(usize, 10), std.mem.count(u8, out, " "));
+}
+
+test "put skips clipped columns and stops at the right edge" {
+    var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer aw.deinit();
+    var line: Line = .{ .writer = &aw.writer, .skip = 2, .left = 3 };
+    try line.put("abcdefgh");
+    try std.testing.expectEqualStrings("cde", aw.writer.buffer[0..aw.writer.end]);
+    try std.testing.expectEqual(@as(usize, 0), line.left);
 }
 
 test "textCols counts codepoints" {
