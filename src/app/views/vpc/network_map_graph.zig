@@ -291,7 +291,7 @@ const Builder = struct {
         }
 
         const total = ok + blocked + unknown;
-        if (total == 0) return .{ .mark = null, .reason = try self.a.print("NACL {s}: nothing is routed outside the VPC to test", .{acl.network_acl_id}) };
+        if (total == 0) return .{ .mark = .unknown, .reason = try self.a.print("NACL {s} not evaluated: no routed destination to test (only local routes, or every route out is already blocked)", .{acl.network_acl_id}) };
 
         if (blocked == 0 and unknown == 0) {
             return .{ .mark = .ok, .reason = try self.a.print("NACL {s} allows tcp/{d} and the return traffic for all {d} routed destinations{s}", .{ acl.network_acl_id, nacl.service_port, total, suffix }) };
@@ -364,7 +364,7 @@ const Builder = struct {
         }
 
         const total = ok + blocked + unknown;
-        if (total == 0) return .{ .mark = null, .reason = try self.a.print("Security groups {s}: nothing is routed outside the VPC to test", .{ids}) };
+        if (total == 0) return .{ .mark = .unknown, .reason = try self.a.print("Security groups {s} not evaluated: no routed destination to test (only local routes, or every route out is already blocked)", .{ids}) };
         if (blocked == 0 and unknown == 0) {
             return .{ .mark = .ok, .reason = try self.a.print("Security groups {s} allow tcp/{d} {s} all {d} routed destinations (stateful, so replies are allowed)", .{ ids, nacl.service_port, preposition, total }) };
         }
@@ -1359,4 +1359,38 @@ test "an interface without security groups is not filtered" {
     const hop = cellAt(g, 0, .eni_hop).?;
     try std.testing.expectEqual(Mark.ok, hop.mark.?);
     try std.testing.expect(std.mem.find(u8, hop.reason, "nothing filters") != null);
+}
+
+test "nothing routed outside the VPC leaves the NACL and security group hops unknown" {
+    const subnets = [_]Ec2.Subnet{testSubnet("subnet-a", "us-east-1a")};
+    var assocs = [_]Ec2.RouteTableAssociation{
+        .{ .association_id = t_empty, .main = true, .subnet_id = t_empty, .gateway_id = t_empty, .state = t_empty },
+    };
+    var routes = [_]Ec2.Route{testRoute("local", "active")};
+    const rtbs = [_]Ec2.RouteTable{testRtb("rtb-main", &assocs, &routes)};
+
+    var open_entries = [_]Ec2.NetworkAclEntry{ testEntry(100, true, true), testEntry(100, false, true) };
+    var open_assoc = [_]Ec2.NetworkAclAssociation{.{ .association_id = t_empty, .subnet_id = @constCast("subnet-a") }};
+    const nacls = [_]Ec2.NetworkAcl{testNacl("acl-open", &open_entries, &open_assoc)};
+
+    var group_refs = [_]Ec2.NetworkInterfaceGroup{.{ .group_id = @constCast("sg-1"), .group_name = @constCast("sg") }};
+    const enis = [_]Ec2.NetworkInterface{testEni("eni-1", "subnet-a", false, "in-use", &group_refs)};
+    const sgs = [_]Ec2.SecurityGroup{testSg("sg-1", &.{})};
+
+    var g = try build(std.testing.allocator, .{
+        .vpc_id = "vpc-1",
+        .subnets = &subnets,
+        .route_tables = &rtbs,
+        .nacls = &nacls,
+        .enis = &enis,
+        .sgs = &sgs,
+    }, .outbound);
+    defer g.deinit();
+
+    const nacl_hop = cellAt(g, 0, .subnet_hop).?;
+    try std.testing.expectEqual(Mark.unknown, nacl_hop.mark.?);
+    try std.testing.expect(std.mem.find(u8, nacl_hop.reason, "not evaluated") != null);
+    const sg_hop = cellAt(g, 0, .eni_hop).?;
+    try std.testing.expectEqual(Mark.unknown, sg_hop.mark.?);
+    try std.testing.expect(std.mem.find(u8, sg_hop.reason, "not evaluated") != null);
 }
