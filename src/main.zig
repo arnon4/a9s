@@ -36,6 +36,8 @@ test {
     _ = @import("app/views/vpc/security_group.zig");
     _ = @import("app/views/vpc/security_group_rules.zig");
     _ = @import("ui/static_table.zig");
+    _ = @import("app/views/vpc/nat_gateways.zig");
+    _ = @import("app/views/vpc/nat_gateway.zig");
     _ = @import("app/views/logs/log_groups.zig");
 }
 

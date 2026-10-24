@@ -19,14 +19,15 @@ const Mark = graph_mod.Mark;
 const SubnetView = @import("subnet.zig");
 const RouteTableView = @import("route_table.zig");
 const InternetGatewayView = @import("internet_gateway.zig");
+const NatGatewayView = @import("nat_gateway.zig");
 
 const NetworkMapView = @This();
 pub const name: []const u8 = "Network Map";
 
-/// Width of a hop: two branch glyphs plus a four-character arrow.
-const hop_width = 6;
-/// Width of the subnet-to-route-table hop: line, mark, line, bracket glyph, arrow.
-const subnet_hop_width = 5;
+/// Width of a hop: two branch glyphs, a four-character arrow and a space before the node.
+const hop_width = 7;
+/// Width of the subnet-to-route-table hop: line, mark, line, bracket glyph, arrow and a space.
+const subnet_hop_width = 6;
 
 // ─── Background fetch context ────────────────────────────────────────────────
 
@@ -388,6 +389,13 @@ fn rtbDisplay(self: *const NetworkMapView, id: []const u8) []const u8 {
     return id;
 }
 
+fn natDisplay(self: *const NetworkMapView, id: []const u8) []const u8 {
+    if (self.ctx.nats) |r| for (r.nat_gateways) |g| {
+        if (std.mem.eql(u8, g.id, id)) return if (g.name.len > 0) g.name else id;
+    };
+    return id;
+}
+
 fn igwDisplay(self: *const NetworkMapView, id: []const u8) []const u8 {
     if (self.ctx.igws) |r| for (r.internet_gateways) |g| {
         if (std.mem.eql(u8, g.internet_gateway_id, id)) return if (g.name.len > 0) g.name else id;
@@ -427,6 +435,10 @@ pub fn handleEvent(self: *NetworkMapView, event: Event, ctx: ViewContext) !Actio
                     .route_table => |id| {
                         const v = try RouteTableView.init(ctx.allocator, ctx.io, credentials, region, id, self.rtbDisplay(id), self.fg_color, self.bg_color, self.breadcrumb());
                         return .{ .push = .{ .vpc_route_table = v } };
+                    },
+                    .nat => |id| {
+                        const v = try NatGatewayView.init(ctx.allocator, ctx.io, credentials, region, id, self.natDisplay(id), self.fg_color, self.bg_color, self.breadcrumb());
+                        return .{ .push = .{ .vpc_nat_gateway = v } };
                     },
                     .igw => |id| {
                         const v = try InternetGatewayView.init(ctx.allocator, ctx.io, credentials, region, id, self.igwDisplay(id), self.fg_color, self.bg_color, self.breadcrumb());
@@ -554,6 +566,7 @@ fn writeCell(self: *NetworkMapView, line: *Line, cell: Cell, selected: bool, sel
     }
     try line.put(if (inbound) "──" else "─▶");
     try line.raw(terminal.RESET);
+    try line.put(" ");
 }
 
 /// Subnet -> route table hop: `─✓─┴▶` (outbound) or `◀✓─┴─` (inbound); the mark is the subnet's NACL verdict.
@@ -584,26 +597,52 @@ fn writeSubnetHop(self: *NetworkMapView, line: *Line, cell: Cell, selected: bool
         try line.put(if (cell.body) "▶" else " ");
     }
     try line.raw(terminal.RESET);
+    try line.put(" ");
 }
 
-fn writeDetail(self: *NetworkMapView, line: *Line, g: Graph) !void {
+/// Reachability mark shown in front of the detail text: the selected hop's own, or for a node the hop leading into it.
+fn detailMark(self: *NetworkMapView, g: Graph) ?Mark {
     const cell = g.cells[self.sel];
-    var mark: ?Mark = cell.mark;
-    if (!cell.is_hop and cell.col != .subnet and cell.col != .route_table) {
-        // A node's explanation is that of the hop leading into it.
-        const hop_col = @backingInt(cell.col) - 1;
-        if (g.rows > 0) {
-            if (self.grid[cell.row * graph_mod.col_count + hop_col]) |hi| mark = g.cells[hi].mark;
+    if (cell.is_hop or cell.col == .subnet or cell.col == .route_table) return cell.mark;
+    const hop_col = @backingInt(cell.col) - 1;
+    if (self.grid[cell.row * graph_mod.col_count + hop_col]) |hi| return g.cells[hi].mark;
+    return null;
+}
+
+/// Splits text into lines of at most `width` columns, breaking at spaces and hard-breaking words longer than a line.
+const Wrap = struct {
+    text: []const u8,
+    width: usize,
+    pos: usize = 0,
+
+    fn next(self: *Wrap) ?[]const u8 {
+        while (self.pos < self.text.len and self.text[self.pos] == ' ') self.pos += 1;
+        if (self.pos >= self.text.len or self.width == 0) return null;
+
+        const start = self.pos;
+        var used: usize = 0;
+        var last_space: ?usize = null;
+        var i = start;
+        while (i < self.text.len) {
+            if (used == self.width) {
+                const end = if (self.text[i] == ' ') i else (last_space orelse i);
+                self.pos = end;
+                return self.text[start..end];
+            }
+            if (self.text[i] == ' ') last_space = i;
+            i = @min(i + cpLen(self.text[i]), self.text.len);
+            used += 1;
         }
+        self.pos = self.text.len;
+        return self.text[start..];
     }
-    if (mark) |m| {
-        try line.raw(markColor(m));
-        try line.put(markGlyph(m));
-        try line.raw(terminal.RESET);
-        try line.put(" ");
-    }
-    try line.put(cell.reason);
-    try line.fill();
+};
+
+fn countLines(text: []const u8, width: usize) usize {
+    var wrap: Wrap = .{ .text = text, .width = width };
+    var n: usize = 0;
+    while (wrap.next() != null) n += 1;
+    return @max(n, 1);
 }
 
 fn writeFooter(self: *NetworkMapView, line: *Line) !void {
@@ -627,25 +666,48 @@ fn writeFooter(self: *NetworkMapView, line: *Line) !void {
     try line.raw(terminal.FG_YELLOW);
     try line.put("?");
     try line.raw(terminal.RESET);
-    try line.put(" unknown   hjkl move  Enter open");
+    try line.put(" unknown");
     try line.fill();
 }
 
+/// Opens a framed row: left border and one space of margin. The content gets `w - 3` columns.
+fn beginRow(self: *NetworkMapView, writer: *std.Io.Writer, w: usize, skip: usize) !Line {
+    try writer.writeAll(self.fg_color);
+    try writer.writeAll(constants.VERTICAL);
+    try writer.writeAll(terminal.RESET);
+    try writer.writeByte(' ');
+    return .{ .writer = writer, .skip = skip, .left = w - 3 };
+}
+
+/// Pads the row to the frame, draws the right border and ends the line.
+fn endRow(self: *NetworkMapView, writer: *std.Io.Writer, line: *Line) !void {
+    try line.fill();
+    try writer.writeAll(self.fg_color);
+    try writer.writeAll(constants.VERTICAL);
+    try writer.writeAll(terminal.RESET);
+    try writer.writeAll("\r\n");
+}
+
+/// Bottom border; no newline after it.
+fn writeBottom(self: *NetworkMapView, writer: *std.Io.Writer, w: usize) !void {
+    try writer.writeAll(self.fg_color);
+    try writer.writeAll(constants.BOTTOM_LEFT);
+    for (0..w - 2) |_| try writer.writeAll(constants.HORIZONTAL);
+    try writer.writeAll(constants.BOTTOM_RIGHT);
+    try writer.writeAll(terminal.RESET);
+}
+
 fn writeMessage(self: *NetworkMapView, writer: *std.Io.Writer, w: usize, h: usize, msg: []const u8) !void {
-    for (0..h) |row| {
-        var line: Line = .{ .writer = writer, .left = w };
-        if (row == 0) {
-            try line.raw(self.fg_color);
-            try line.put(" ");
-            try line.put(msg);
-        }
-        try line.fill();
-        if (row + 1 < h) try writer.writeAll("\r\n");
+    for (0..h - 1) |row| {
+        var line = try self.beginRow(writer, w, 0);
+        if (row == 0) try line.put(msg);
+        try self.endRow(writer, &line);
     }
+    try self.writeBottom(writer, w);
 }
 
 pub fn render(self: *NetworkMapView, writer: *std.Io.Writer, size: Coord) !void {
-    if (size.x < 10 or size.y < 3) return;
+    if (size.x < 10 or size.y < 4) return;
     const w: usize = @intCast(size.x);
     const h: usize = @intCast(size.y);
 
@@ -664,7 +726,14 @@ pub fn render(self: *NetworkMapView, writer: *std.Io.Writer, size: Coord) !void 
     if (g.cells.len == 0) return self.writeMessage(writer, w, h, "No subnets with route tables in this VPC");
 
     const sel_cell = g.cells[self.sel];
-    const data_rows = h - 2;
+    const avail = w - 3;
+
+    // Below the map: the wrapped explanation of the selection, the footer and the bottom border.
+    const detail_mark = self.detailMark(g);
+    const indent: usize = if (detail_mark != null) 2 else 0;
+    const text_w = avail - indent;
+    const detail_lines = @min(@min(countLines(sel_cell.reason, text_w), 4), h - 3);
+    const data_rows = h - detail_lines - 2;
 
     // Keep the selection on screen.
     if (sel_cell.row < self.scroll_row) self.scroll_row = sel_cell.row;
@@ -672,12 +741,12 @@ pub fn render(self: *NetworkMapView, writer: *std.Io.Writer, size: Coord) !void 
     var x_start: usize = 0;
     for (self.col_w[0..@backingInt(sel_cell.col)]) |cw| x_start += cw;
     const x_end = x_start + self.col_w[@backingInt(sel_cell.col)];
-    if (x_end > self.scroll_col + w) self.scroll_col = x_end - w;
+    if (x_end > self.scroll_col + avail) self.scroll_col = x_end - avail;
     if (x_start < self.scroll_col) self.scroll_col = x_start;
 
     for (0..data_rows) |i| {
         const row = self.scroll_row + i;
-        var line: Line = .{ .writer = writer, .skip = self.scroll_col, .left = w };
+        var line = try self.beginRow(writer, w, self.scroll_col);
         if (row < g.rows) {
             for (0..graph_mod.col_count) |col| {
                 const width = self.col_w[col];
@@ -689,22 +758,59 @@ pub fn render(self: *NetworkMapView, writer: *std.Io.Writer, size: Coord) !void 
                 }
             }
         }
-        try line.fill();
-        try writer.writeAll("\r\n");
+        try self.endRow(writer, &line);
     }
 
-    var detail: Line = .{ .writer = writer, .left = w };
-    try detail.put(" ");
-    try self.writeDetail(&detail, g);
-    try writer.writeAll("\r\n");
+    var wrap: Wrap = .{ .text = sel_cell.reason, .width = text_w };
+    for (0..detail_lines) |li| {
+        var detail = try self.beginRow(writer, w, 0);
+        if (li == 0) {
+            if (detail_mark) |m| {
+                try detail.raw(markColor(m));
+                try detail.put(markGlyph(m));
+                try detail.raw(terminal.RESET);
+                try detail.put(" ");
+            }
+        } else {
+            try detail.spaces(indent);
+        }
+        if (wrap.next()) |segment| try detail.put(segment);
+        try self.endRow(writer, &detail);
+    }
 
-    var footer: Line = .{ .writer = writer, .left = w };
+    var footer = try self.beginRow(writer, w, 0);
     try self.writeFooter(&footer);
+    try self.endRow(writer, &footer);
+
+    try self.writeBottom(writer, w);
 }
 
 // ============================================================================
 // Tests
 // ============================================================================
+
+test "Wrap breaks at spaces and keeps every word" {
+    var wrap: Wrap = .{ .text = "NACL acl-1 allows tcp/443 and the return traffic", .width = 16 };
+    try std.testing.expectEqualStrings("NACL acl-1", wrap.next().?);
+    try std.testing.expectEqualStrings("allows tcp/443", wrap.next().?);
+    try std.testing.expectEqualStrings("and the return", wrap.next().?);
+    try std.testing.expectEqualStrings("traffic", wrap.next().?);
+    try std.testing.expect(wrap.next() == null);
+}
+
+test "Wrap hard-breaks words longer than a line" {
+    var wrap: Wrap = .{ .text = "abcdefghij", .width = 4 };
+    try std.testing.expectEqualStrings("abcd", wrap.next().?);
+    try std.testing.expectEqualStrings("efgh", wrap.next().?);
+    try std.testing.expectEqualStrings("ij", wrap.next().?);
+    try std.testing.expect(wrap.next() == null);
+}
+
+test "countLines is at least one and counts wrapped lines" {
+    try std.testing.expectEqual(@as(usize, 1), countLines("", 10));
+    try std.testing.expectEqual(@as(usize, 1), countLines("short", 10));
+    try std.testing.expectEqual(@as(usize, 3), countLines("aaa bbb ccc", 3));
+}
 
 test "textCols counts codepoints" {
     try std.testing.expectEqual(@as(usize, 3), textCols("abc"));

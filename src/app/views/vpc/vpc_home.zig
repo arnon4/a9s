@@ -14,6 +14,7 @@ const RouteTablesView = @import("route_tables.zig");
 const InternetGatewaysView = @import("internet_gateways.zig");
 const NetworkAclsView = @import("network_acls.zig");
 const SecurityGroupsView = @import("security_groups.zig");
+const NatGatewaysView = @import("nat_gateways.zig");
 
 const VpcHomeView = @This();
 pub const name: []const u8 = "VPC";
@@ -25,6 +26,7 @@ const MENU_ITEMS = [_][]const u8{
     "Internet Gateways",
     "Network ACLs",
     "Security Groups",
+    "NAT Gateways",
 };
 
 fg_color: []const u8,
@@ -101,6 +103,10 @@ pub fn handleEvent(self: *VpcHomeView, event: Event, ctx: ViewContext) !Action {
                 5 => { // Security Groups
                     const v = try SecurityGroupsView.init(ctx.allocator, ctx.io, ctx.profile_set, ctx.regions, ctx.color_support);
                     return .{ .push = .{ .vpc_security_groups = v } };
+                },
+                6 => { // NAT Gateways
+                    const v = try NatGatewaysView.init(ctx.allocator, ctx.io, ctx.profile_set, ctx.regions, ctx.color_support);
+                    return .{ .push = .{ .vpc_nat_gateways = v } };
                 },
                 else => {},
             },

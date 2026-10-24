@@ -45,6 +45,7 @@ pub const Ref = union(enum) {
     subnet: []const u8,
     route_table: []const u8,
     igw: []const u8,
+    nat: []const u8,
 };
 
 /// Grid columns, left to right.
@@ -326,13 +327,15 @@ const Builder = struct {
                     hop = .{ .mark = .unknown, .reason = "Cannot read NAT gateways with these credentials" };
                 } else if (found) |n| {
                     hop = if (std.mem.eql(u8, n.state, "available"))
-                        .{ .mark = .ok, .reason = try self.a.print("NAT gateway {s} is available", .{target}) }
+                        .{ .mark = .ok, .reason = try self.a.print("NAT gateway {s} is available in {s}", .{ target, if (n.subnet_id.len > 0) n.subnet_id else "an unknown subnet" }) }
+                    else if (n.failure_message.len > 0)
+                        .{ .mark = .blocked, .reason = try self.a.print("NAT gateway {s} state: {s} ({s})", .{ target, n.state, n.failure_message }) }
                     else
                         .{ .mark = .blocked, .reason = try self.a.print("NAT gateway {s} state: {s}", .{ target, n.state }) };
                 } else {
                     hop = .{ .mark = .blocked, .reason = try self.a.print("NAT gateway {s} was not found in this VPC", .{target}) };
                 }
-                path.push(.{ .text = try self.label(.nat, target, if (found) |n| n.name else ""), .hop = hop });
+                path.push(.{ .text = try self.label(.nat, target, if (found) |n| n.name else ""), .ref = .{ .nat = target }, .hop = hop });
 
                 const n = found orelse return finish(&path);
                 if (std.mem.eql(u8, n.connectivity_type, "private")) return finish(&path);
@@ -877,4 +880,39 @@ test "unreadable network ACLs yield unknown at the subnet hop" {
     defer g.deinit();
 
     try std.testing.expectEqual(Mark.unknown, cellAt(g, 0, .subnet_hop).?.mark.?);
+}
+
+test "NAT node links to its detail view and explains a failed gateway" {
+    const subnets = [_]Ec2.Subnet{testSubnet("subnet-a", "us-east-1a")};
+    var assocs = [_]Ec2.RouteTableAssociation{
+        .{ .association_id = t_empty, .main = true, .subnet_id = t_empty, .gateway_id = t_empty, .state = t_empty },
+    };
+    var routes = [_]Ec2.Route{testRoute("nat-1", "active")};
+    const rtbs = [_]Ec2.RouteTable{testRtb("rtb-main", &assocs, &routes)};
+    const nats = [_]Ec2.NatGateway{.{
+        .allocator = std.testing.allocator,
+        .id = @constCast("nat-1"),
+        .state = @constCast("failed"),
+        .vpc_id = @constCast("vpc-1"),
+        .subnet_id = @constCast("subnet-pub"),
+        .connectivity_type = @constCast("public"),
+        .create_time = t_empty,
+        .delete_time = t_empty,
+        .failure_code = @constCast("Gateway.NotAttached"),
+        .failure_message = @constCast("no internet gateway attached"),
+        .name = t_empty,
+        .tags = &.{},
+        .addresses = &.{},
+    }};
+
+    var g = try build(std.testing.allocator, .{ .vpc_id = "vpc-1", .subnets = &subnets, .route_tables = &rtbs, .nats = &nats }, .outbound);
+    defer g.deinit();
+
+    const node = cellAt(g, 0, .node0).?;
+    try std.testing.expectEqualStrings("[NAT] nat-1", node.text);
+    try std.testing.expectEqualStrings("nat-1", node.ref.nat);
+
+    const hop = cellAt(g, 0, .hop0).?;
+    try std.testing.expectEqual(Mark.blocked, hop.mark.?);
+    try std.testing.expect(std.mem.find(u8, hop.reason, "no internet gateway attached") != null);
 }
