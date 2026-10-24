@@ -119,6 +119,7 @@ pub const NetworkAclAssociation = describeNetworkAclsMod.Association;
 
 const describeSecurityGroupsMod = @import("describe/security_groups.zig");
 const describeSecurityGroupsImpl = describeSecurityGroupsMod.describeSecurityGroups;
+const describeAllSecurityGroupsImpl = describeSecurityGroupsMod.describeAllSecurityGroups;
 
 pub const DescribeSecurityGroupsOptions = describeSecurityGroupsMod.Options;
 pub const DescribeSecurityGroupsParams = describeSecurityGroupsMod.Params;
@@ -144,6 +145,34 @@ pub const DescribeSecurityGroupReferencesOptions = describeSecurityGroupReferenc
 pub const DescribeSecurityGroupReferencesParams = describeSecurityGroupReferencesMod.Params;
 pub const DescribeSecurityGroupReferencesResult = describeSecurityGroupReferencesMod.Result;
 pub const SecurityGroupReference = describeSecurityGroupReferencesMod.SecurityGroupReference;
+
+const describeNetworkInterfacesMod = @import("describe/network_interfaces.zig");
+const describeNetworkInterfacesImpl = describeNetworkInterfacesMod.describeNetworkInterfaces;
+const describeAllNetworkInterfacesImpl = describeNetworkInterfacesMod.describeAllNetworkInterfaces;
+
+pub const DescribeNetworkInterfacesOptions = describeNetworkInterfacesMod.Options;
+pub const DescribeNetworkInterfacesParams = describeNetworkInterfacesMod.Params;
+pub const DescribeNetworkInterfacesResult = describeNetworkInterfacesMod.Result;
+pub const NetworkInterface = describeNetworkInterfacesMod.NetworkInterface;
+pub const NetworkInterfaceGroup = describeNetworkInterfacesMod.Group;
+pub const NetworkInterfaceAttachment = describeNetworkInterfacesMod.Attachment;
+pub const NetworkInterfacePrivateIp = describeNetworkInterfacesMod.PrivateIp;
+
+const describeNetworkInterfaceAttributeMod = @import("describe/network_interface_attribute.zig");
+const describeNetworkInterfaceAttributeImpl = describeNetworkInterfaceAttributeMod.describeNetworkInterfaceAttribute;
+
+pub const DescribeNetworkInterfaceAttributeOptions = describeNetworkInterfaceAttributeMod.Options;
+pub const DescribeNetworkInterfaceAttributeParams = describeNetworkInterfaceAttributeMod.Params;
+pub const DescribeNetworkInterfaceAttributeResult = describeNetworkInterfaceAttributeMod.Result;
+pub const NetworkInterfaceAttribute = describeNetworkInterfaceAttributeMod.Attribute;
+
+const describeNetworkInterfacePermissionsMod = @import("describe/network_interface_permissions.zig");
+const describeNetworkInterfacePermissionsImpl = describeNetworkInterfacePermissionsMod.describeNetworkInterfacePermissions;
+
+pub const DescribeNetworkInterfacePermissionsOptions = describeNetworkInterfacePermissionsMod.Options;
+pub const DescribeNetworkInterfacePermissionsParams = describeNetworkInterfacePermissionsMod.Params;
+pub const DescribeNetworkInterfacePermissionsResult = describeNetworkInterfacePermissionsMod.Result;
+pub const NetworkInterfacePermission = describeNetworkInterfacePermissionsMod.NetworkInterfacePermission;
 
 pub const ClientOptions = struct {
     region: []const u8 = "us-east-1",
@@ -241,6 +270,11 @@ pub const Client = struct {
     pub fn describeSecurityGroups(self: *Client, options: DescribeSecurityGroupsOptions) !DescribeSecurityGroupsResult {
         return describeSecurityGroupsImpl(self, options);
     }
+
+    /// Describe security groups, following every page of results. Caller owns the result and must call deinit.
+    pub fn describeAllSecurityGroups(self: *Client, options: DescribeSecurityGroupsOptions) !DescribeSecurityGroupsResult {
+        return describeAllSecurityGroupsImpl(self, options);
+    }
     /// Describe security groups that can be associated with interfaces in a VPC. Caller owns the result and must call deinit.
     pub fn getSecurityGroupsForVpc(self: *Client, options: DescribeSecurityGroupsForVpcOptions) !DescribeSecurityGroupsForVpcResult {
         return describeSecurityGroupsForVpcImpl(self, options);
@@ -248,6 +282,25 @@ pub const Client = struct {
     /// Describe security group references across peered VPCs. Caller owns the result and must call deinit.
     pub fn describeSecurityGroupReferences(self: *Client, options: DescribeSecurityGroupReferencesOptions) !DescribeSecurityGroupReferencesResult {
         return describeSecurityGroupReferencesImpl(self, options);
+    }
+    /// Describe one page of network interfaces. Caller owns the result and must call deinit.
+    pub fn describeNetworkInterfaces(self: *Client, options: DescribeNetworkInterfacesOptions) !DescribeNetworkInterfacesResult {
+        return describeNetworkInterfacesImpl(self, options);
+    }
+
+    /// Describe network interfaces, following every page of results. Caller owns the result and must call deinit.
+    pub fn describeAllNetworkInterfaces(self: *Client, options: DescribeNetworkInterfacesOptions) !DescribeNetworkInterfacesResult {
+        return describeAllNetworkInterfacesImpl(self, options);
+    }
+
+    /// Describe one attribute of a network interface. Caller owns the result and must call deinit.
+    pub fn describeNetworkInterfaceAttribute(self: *Client, options: DescribeNetworkInterfaceAttributeOptions) !DescribeNetworkInterfaceAttributeResult {
+        return describeNetworkInterfaceAttributeImpl(self, options);
+    }
+
+    /// Describe network interface permissions. Caller owns the result and must call deinit.
+    pub fn describeNetworkInterfacePermissions(self: *Client, options: DescribeNetworkInterfacePermissionsOptions) !DescribeNetworkInterfacePermissionsResult {
+        return describeNetworkInterfacePermissionsImpl(self, options);
     }
 };
 
@@ -302,5 +355,9 @@ test {
     _ = @import("describe/security_groups.zig");
     _ = @import("describe/security_groups_for_vpc.zig");
     _ = @import("describe/security_group_references.zig");
+    _ = @import("describe/paging.zig");
+    _ = @import("describe/network_interfaces.zig");
+    _ = @import("describe/network_interface_attribute.zig");
+    _ = @import("describe/network_interface_permissions.zig");
     _ = @import("request.zig");
 }
