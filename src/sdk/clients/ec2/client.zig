@@ -65,6 +65,7 @@ pub const DescribeNatGatewaysOptions = describeNatGatewaysMod.Options;
 pub const DescribeNatGatewaysParams = describeNatGatewaysMod.Params;
 pub const DescribeNatGatewaysResult = describeNatGatewaysMod.Result;
 pub const NatGateway = describeNatGatewaysMod.NatGateway;
+pub const NatGatewayAddress = describeNatGatewaysMod.Address;
 
 const describeVpcPeeringConnectionsMod = @import("describe/vpc_peering_connections.zig");
 const describeVpcPeeringConnectionsImpl = describeVpcPeeringConnectionsMod.describeVpcPeeringConnections;
