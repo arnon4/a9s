@@ -29,6 +29,7 @@ test {
     _ = @import("app/views/vpc/network_map.zig");
     _ = @import("app/views/vpc/network_map_graph.zig");
     _ = @import("app/views/vpc/network_map_nacl.zig");
+    _ = @import("app/views/vpc/network_map_sg.zig");
     _ = @import("app/views/vpc/network_acls.zig");
     _ = @import("app/views/vpc/network_acl.zig");
     _ = @import("app/views/vpc/network_acl_rules.zig");
@@ -36,6 +37,10 @@ test {
     _ = @import("app/views/vpc/security_group.zig");
     _ = @import("app/views/vpc/security_group_rules.zig");
     _ = @import("ui/static_table.zig");
+    _ = @import("app/views/vpc/nat_gateways.zig");
+    _ = @import("app/views/vpc/nat_gateway.zig");
+    _ = @import("app/views/vpc/network_interfaces.zig");
+    _ = @import("app/views/vpc/network_interface.zig");
     _ = @import("app/views/logs/log_groups.zig");
 }
 

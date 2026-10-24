@@ -4,6 +4,7 @@ const Allocator = std.mem.Allocator;
 const xml = @import("../../../utils/xml.zig");
 const req = @import("../request.zig");
 const vpcs = @import("vpcs.zig");
+const paging = @import("paging.zig");
 
 pub const Tag = vpcs.Tag;
 pub const Filter = vpcs.Filter;
@@ -152,6 +153,20 @@ pub fn describeSecurityGroups(client: anytype, options: Options) !Result {
     defer client.allocator.free(resp);
 
     return parseResponse(client.allocator, resp);
+}
+
+/// Every page of results, fetched by following `NextToken`. The result has no `next_token`.
+/// With explicit IDs or names EC2 forbids `MaxResults`, so the page size is only set without them.
+pub fn describeAllSecurityGroups(client: anytype, options: Options) !Result {
+    const Client = @TypeOf(client);
+    const Fetch = struct {
+        fn page(c: Client, params: Params) anyerror!Result {
+            return describeSecurityGroups(c, .{ .params = params });
+        }
+    };
+    var params = options.params;
+    if (params.max_results == null and params.group_ids.len == 0 and params.group_names.len == 0) params.max_results = 1000;
+    return paging.collect(SecurityGroup, Result, "security_groups", client.allocator, Client, client, params, Fetch.page);
 }
 
 fn appendList(allocator: Allocator, body: *std.ArrayList(u8), comptime prefix: []const u8, values: []const []const u8) !void {

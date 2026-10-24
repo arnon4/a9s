@@ -67,6 +67,10 @@ const NetworkAclRulesView = @import("../app/views/vpc/network_acl_rules.zig");
 const SecurityGroupsView = @import("../app/views/vpc/security_groups.zig");
 const SecurityGroupView = @import("../app/views/vpc/security_group.zig");
 const SecurityGroupRulesView = @import("../app/views/vpc/security_group_rules.zig");
+const NatGatewaysView = @import("../app/views/vpc/nat_gateways.zig");
+const NatGatewayView = @import("../app/views/vpc/nat_gateway.zig");
+const NetworkInterfacesView = @import("../app/views/vpc/network_interfaces.zig");
+const NetworkInterfaceView = @import("../app/views/vpc/network_interface.zig");
 
 const Event = @import("../event.zig").Event;
 
@@ -148,6 +152,10 @@ pub const View = union(enum) {
     vpc_security_groups: SecurityGroupsView,
     vpc_security_group: SecurityGroupView,
     vpc_security_group_rules: SecurityGroupRulesView,
+    vpc_nat_gateways: NatGatewaysView,
+    vpc_nat_gateway: NatGatewayView,
+    vpc_network_interfaces: NetworkInterfacesView,
+    vpc_network_interface: NetworkInterfaceView,
 
     const Self = @This();
 
